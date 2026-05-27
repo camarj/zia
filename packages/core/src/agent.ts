@@ -9,9 +9,8 @@ import {
   type AgentSessionRuntime,
   type CreateAgentSessionRuntimeFactory,
 } from "@earendil-works/pi-coding-agent";
-import { getModel, type KnownProvider } from "@earendil-works/pi-ai";
+import { readFichaLlm, resolveModelFromFicha } from "@zia/providers";
 
-import { loadFichaLlmConfig } from "./ficha-llm-config.ts";
 import { buildPromptFromFicha } from "./prompt-builder.ts";
 
 type ThinkingLevel = "off" | "low" | "medium" | "high";
@@ -28,25 +27,26 @@ export interface ZiaAgentHandle {
 const DEFAULT_THINKING_LEVEL: ThinkingLevel = "medium";
 
 export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAgentHandle> {
-  const llm = await loadFichaLlmConfig(opts.fichaDir);
-  const apiKey = process.env[llm.credentialsEnv];
-  if (!apiKey) {
-    throw new Error(
-      `zia: ${llm.credentialsEnv} is not set. Add it to .env at the repo root before launching the TUI.`,
-    );
-  }
+  // Read ficha declaration first so we can register the credential against
+  // pi.dev's AuthStorage before any session is created.
+  const declaration = await readFichaLlm(opts.fichaDir);
+  const model = await resolveModelFromFicha(opts.fichaDir, process.env);
 
   const systemPrompt = await buildPromptFromFicha(opts.fichaDir);
 
   const authStorage = AuthStorage.create();
-  // TODO(sdd:llm-provider-cli): replace these casts with a typed catalog lookup.
-  // pi-ai's getModel constrains both args to literal types; until the catalog
-  // lands, we trust profile.yaml to declare valid provider/model strings.
-  authStorage.setRuntimeApiKey(llm.provider as KnownProvider, apiKey);
+  if (declaration.provider !== "custom") {
+    const credentialEnv = declaration.credentialEnv ?? defaultCredentialEnv(declaration.provider);
+    const value = credentialEnv ? process.env[credentialEnv] : undefined;
+    if (credentialEnv && value) {
+      // Cast: the resolver already validated the provider key is in the catalog;
+      // AuthStorage.setRuntimeApiKey takes a KnownProvider literal.
+      authStorage.setRuntimeApiKey(declaration.provider as never, value);
+    }
+  }
   const modelRegistry = ModelRegistry.create(authStorage);
 
-  const model = getModel(llm.provider as KnownProvider, llm.modelId as never);
-  const thinkingLevel = opts.thinkingLevel ?? llm.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
+  const thinkingLevel = opts.thinkingLevel ?? declaration.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
 
   const cwd = process.cwd();
   const agentDir = getAgentDir();
@@ -97,4 +97,33 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
   });
 
   return { runtime };
+}
+
+// Minimal duplication of the catalog's credential-env defaults so that
+// AuthStorage registration knows where to read the key. The full catalog
+// lookup happens inside `resolveModelFromFicha`; this only needs the common
+// providers we expect to hit before PR 4's OAuth helpers land.
+function defaultCredentialEnv(provider: string): string | undefined {
+  switch (provider) {
+    case "anthropic":
+      return "ANTHROPIC_API_KEY";
+    case "openai":
+      return "OPENAI_API_KEY";
+    case "google":
+      return "GEMINI_API_KEY";
+    case "deepseek":
+      return "DEEPSEEK_API_KEY";
+    case "groq":
+      return "GROQ_API_KEY";
+    case "together":
+      return "TOGETHER_API_KEY";
+    case "openrouter":
+      return "OPENROUTER_API_KEY";
+    case "xai":
+      return "XAI_API_KEY";
+    case "mistral":
+      return "MISTRAL_API_KEY";
+    default:
+      return undefined;
+  }
 }
