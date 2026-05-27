@@ -1,0 +1,26 @@
+{
+  "name": "@zia/core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Agent core for zia — wraps pi.dev SDK with ficha-driven configuration",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.76.0",
+    "@earendil-works/pi-ai": "^0.76.0",
+    "typebox": "^1.1.38"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.8"
+  }
+}

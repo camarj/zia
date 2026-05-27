@@ -25,4 +25,11 @@ agents/*/secrets/
 # IDE
 .vscode/
 .idea/
+.windsurf/
 *.swp
+
+# Stray npm lockfile — this is a pnpm workspace
+package-lock.json
+
+# .atl cache files (skill-registry.md itself IS committed)
+.atl/.*.cache.json

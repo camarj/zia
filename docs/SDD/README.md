@@ -52,4 +52,25 @@ Each phase uses a different model (configured in `gentle-ai sync --profile-phase
 
 ## Current SDD docs
 
-(Empty — phase -1 just landed. Phase 0 design will be the first entry.)
+Artifacts live in Engram (project `zia`). Look them up via `mem_search` or `engram search` using the `topic_key` column.
+
+### `phase-0-core-spike`
+
+| Phase | Topic key | Status |
+|---|---|---|
+| Explore | `sdd/phase-0-core-spike/explore` | done |
+| Proposal | `sdd/phase-0-core-spike/proposal` | done |
+| Design | `sdd/phase-0-core-spike/design` | done |
+| Spec | `sdd/phase-0-core-spike/spec` | done |
+| Tasks | `sdd/phase-0-core-spike/tasks` | done |
+| Apply progress | `sdd/phase-0-core-spike/apply-progress` | in progress |
+
+### `llm-provider-cli` (blocked on phase-0-core-spike merging)
+
+| Phase | Topic key | Status |
+|---|---|---|
+| Explore | `sdd/llm-provider-cli/explore` | done |
+| Proposal | `sdd/llm-provider-cli/proposal` | done |
+| Design | `sdd/llm-provider-cli/design` | done |
+| Spec | `sdd/llm-provider-cli/spec` | done |
+| Tasks | `sdd/llm-provider-cli/tasks` | done |
