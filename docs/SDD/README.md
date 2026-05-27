@@ -54,7 +54,7 @@ Each phase uses a different model (configured in `gentle-ai sync --profile-phase
 
 Artifacts live in Engram (project `zia`). Look them up via `mem_search` or `engram search` using the `topic_key` column.
 
-### `phase-0-core-spike`
+### `phase-0-core-spike` ✅ archived (PR #1 merged 2026-05-27)
 
 | Phase | Topic key | Status |
 |---|---|---|
@@ -63,9 +63,11 @@ Artifacts live in Engram (project `zia`). Look them up via `mem_search` or `engr
 | Design | `sdd/phase-0-core-spike/design` | done |
 | Spec | `sdd/phase-0-core-spike/spec` | done |
 | Tasks | `sdd/phase-0-core-spike/tasks` | done |
-| Apply progress | `sdd/phase-0-core-spike/apply-progress` | in progress |
+| Apply progress | `sdd/phase-0-core-spike/apply-progress` | done |
+| Verify report | `sdd/phase-0-core-spike/verify-report` | PASS WITH WARNINGS |
+| Archive report | `sdd/phase-0-core-spike/archive-report` | done |
 
-### `llm-provider-cli` (blocked on phase-0-core-spike merging)
+### `llm-provider-cli` — ready to apply
 
 | Phase | Topic key | Status |
 |---|---|---|
