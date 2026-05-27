@@ -1,8 +1,8 @@
 {
-  "name": "@zia/core",
+  "name": "@zia/providers",
   "version": "0.0.0",
   "private": true,
-  "description": "Agent core for zia — wraps pi.dev SDK with ficha-driven configuration",
+  "description": "LLM provider resolver for zia — translates ficha YAML into pi.dev Model objects",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -13,14 +13,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "^0.76.0",
     "@earendil-works/pi-ai": "^0.76.0",
-    "@zia/providers": "workspace:*",
-    "typebox": "^1.1.38"
+    "yaml": "^2.6.0",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "tsx": "^4.19.2",
     "typescript": "^5.9.3",
     "vitest": "^2.1.8"
   }
