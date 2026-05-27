@@ -29,20 +29,32 @@
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
-        "pathMatcher": ".*\\.(ts|tsx)$",
-        "command": "pnpm typecheck"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in *.ts|*.tsx) pnpm typecheck ;; esac"
+          }
+        ]
       },
       {
         "matcher": "Edit|Write",
-        "pathMatcher": "agents/.*/profile\\.yaml$",
-        "command": "pnpm --filter @zia/core validate-ficha || true"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in *agents/*/profile.yaml) pnpm --filter @zia/core validate-ficha || true ;; esac"
+          }
+        ]
       }
     ],
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "patternMatcher": "git push.*main",
-        "command": "echo 'Direct push to main blocked. Open a PR.' && exit 1"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "c=$(jq -r '.tool_input.command // empty'); if printf '%s' \"$c\" | grep -Eq 'git[[:space:]]+push.*([[:space:]]|:)main([[:space:]]|$)'; then echo 'Direct push to main blocked. Open a PR.' >&2; exit 2; fi"
+          }
+        ]
       }
     ]
   }
