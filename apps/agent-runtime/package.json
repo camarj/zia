@@ -2,19 +2,25 @@
   "name": "@zia/agent-runtime",
   "version": "0.0.0",
   "private": true,
-  "description": "Per-agent runtime — TUI entry into pi.dev for a zia agent",
+  "description": "Per-agent runtime — TUI + model picker entries into pi.dev for a zia agent",
   "license": "MIT",
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "tui": "tsx src/tui.ts"
+    "test": "vitest run",
+    "tui": "tsx src/tui.ts",
+    "model": "tsx src/cli/model.ts"
   },
   "dependencies": {
-    "@zia/core": "workspace:*"
+    "@inquirer/prompts": "^7.2.1",
+    "@zia/core": "workspace:*",
+    "@zia/providers": "workspace:*",
+    "yaml": "^2.6.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "tsx": "^4.19.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.8"
   }
 }
