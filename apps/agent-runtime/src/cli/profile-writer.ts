@@ -60,21 +60,49 @@ export async function updateProfileLlmDefault(
   def.set("provider", update.provider);
   def.set("model", update.modelId);
 
-  if (update.thinkingLevel === undefined) {
-    if (def.has("thinkingLevel")) {
-      def.delete("thinkingLevel");
-    }
-  } else {
+  // Partial-update semantics: only set fields that were explicitly passed.
+  // `undefined` means "preserve existing"; callers that want to CLEAR a
+  // field should use {@link clearProfileLlmField} below. This matches the
+  // user expectation that `zia model` (which only asks for provider + model)
+  // does not silently drop unrelated config like thinkingLevel.
+  if (update.thinkingLevel !== undefined) {
     def.set("thinkingLevel", update.thinkingLevel);
   }
-
-  if (update.credentialEnv === undefined) {
-    if (def.has("credentials_env")) {
-      def.delete("credentials_env");
-    }
-  } else {
+  if (update.credentialEnv !== undefined) {
     def.set("credentials_env", update.credentialEnv);
   }
 
   await writeFile(profilePath, doc.toString(), "utf8");
+}
+
+/**
+ * Explicitly remove an optional field from `llm.default`. Use this when the
+ * caller wants to clear `thinkingLevel` or `credentials_env`, since the main
+ * updater preserves those when the update object omits them.
+ */
+export async function clearProfileLlmField(
+  fichaDir: string,
+  field: "thinkingLevel" | "credentials_env",
+): Promise<void> {
+  const profilePath = join(fichaDir, "profile.yaml");
+  let raw: string;
+  try {
+    raw = await readFile(profilePath, "utf8");
+  } catch (cause) {
+    throw new Error(`zia: cannot read ${profilePath}`, { cause });
+  }
+
+  const doc = parseDocument(raw);
+  const llm = doc.get("llm");
+  if (!isMap(llm)) {
+    return;
+  }
+  const def = llm.get("default");
+  if (!isMap(def)) {
+    return;
+  }
+  if (def.has(field)) {
+    def.delete(field);
+    await writeFile(profilePath, doc.toString(), "utf8");
+  }
 }

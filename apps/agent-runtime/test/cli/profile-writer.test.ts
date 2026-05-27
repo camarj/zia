@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
-import { updateProfileLlmDefault } from "../../src/cli/profile-writer.ts";
+import { clearProfileLlmField, updateProfileLlmDefault } from "../../src/cli/profile-writer.ts";
 
 describe("updateProfileLlmDefault", () => {
   let createdDirs: string[] = [];
@@ -90,22 +90,58 @@ llm:
     expect(content).toMatch(/credentials_env:\s*MY_OPENAI_KEY/);
   });
 
-  it("removes credentials_env when undefined and present in the original", async () => {
+  it("preserves credentials_env when not in the update (partial-update semantics)", async () => {
     const dir = await makeFicha(`llm:
   default:
     provider: openai
     model: gpt-4o-mini
-    credentials_env: OLD_KEY
+    credentials_env: KEEP_ME
 `);
 
     await updateProfileLlmDefault(dir, {
       provider: "openai",
       modelId: "gpt-4o-mini",
-      // credentialEnv omitted on purpose
+      // credentialEnv omitted on purpose — should be preserved
     });
 
     const content = await readFile(join(dir, "profile.yaml"), "utf8");
+    expect(content).toMatch(/credentials_env:\s*KEEP_ME/);
+  });
+
+  it("preserves thinkingLevel when not in the update", async () => {
+    const dir = await makeFicha(`llm:
+  default:
+    provider: openai
+    model: gpt-4o-mini
+    thinkingLevel: high
+`);
+
+    await updateProfileLlmDefault(dir, {
+      provider: "anthropic",
+      modelId: "claude-sonnet-4-6",
+      // thinkingLevel omitted — should survive a provider change
+    });
+
+    const parsed = parse(await readFile(join(dir, "profile.yaml"), "utf8")) as {
+      llm: { default: Record<string, unknown> };
+    };
+    expect(parsed.llm.default.thinkingLevel).toBe("high");
+  });
+
+  it("clearProfileLlmField removes a field explicitly", async () => {
+    const dir = await makeFicha(`llm:
+  default:
+    provider: openai
+    model: gpt-4o-mini
+    thinkingLevel: medium
+    credentials_env: SOME_KEY
+`);
+
+    await clearProfileLlmField(dir, "credentials_env");
+
+    const content = await readFile(join(dir, "profile.yaml"), "utf8");
     expect(content).not.toContain("credentials_env");
+    expect(content).toContain("thinkingLevel: medium");
   });
 
   it("creates llm.default if the file has llm: but no default", async () => {

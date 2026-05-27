@@ -81,7 +81,16 @@ export const providerCatalog: readonly Provider[] = [
     label: "OpenCode Go",
     type: "api-key",
     credentialEnv: "OPENCODE_GO_API_KEY",
-    defaultModels: [],
+    defaultModels: [
+      "kimi-k2.5",
+      "kimi-k2.6",
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+      "glm-5",
+      "glm-5.1",
+      "qwen3.5-plus",
+      "qwen3.7-max",
+    ],
   },
   {
     key: "amazon-bedrock",
