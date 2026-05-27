@@ -9,8 +9,9 @@ import {
   type AgentSessionRuntime,
   type CreateAgentSessionRuntimeFactory,
 } from "@earendil-works/pi-coding-agent";
-import { getModel } from "@earendil-works/pi-ai";
+import { getModel, type KnownProvider } from "@earendil-works/pi-ai";
 
+import { loadFichaLlmConfig } from "./ficha-llm-config.ts";
 import { buildPromptFromFicha } from "./prompt-builder.ts";
 
 type ThinkingLevel = "off" | "low" | "medium" | "high";
@@ -24,28 +25,28 @@ export interface ZiaAgentHandle {
   runtime: AgentSessionRuntime;
 }
 
-const ANTHROPIC_KEY_ENV = "ANTHROPIC_API_KEY";
 const DEFAULT_THINKING_LEVEL: ThinkingLevel = "medium";
 
-// Phase 0 ships with a fixed provider+model. Dynamic provider/model selection
-// (multi-provider, custom endpoints, OAuth) lands in sdd/llm-provider-cli.
-const FIXED_MODEL = getModel("anthropic", "claude-sonnet-4-6");
-
 export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAgentHandle> {
-  const apiKey = process.env[ANTHROPIC_KEY_ENV];
+  const llm = await loadFichaLlmConfig(opts.fichaDir);
+  const apiKey = process.env[llm.credentialsEnv];
   if (!apiKey) {
     throw new Error(
-      `zia: ${ANTHROPIC_KEY_ENV} is not set. Add it to .env at the repo root before launching the TUI.`,
+      `zia: ${llm.credentialsEnv} is not set. Add it to .env at the repo root before launching the TUI.`,
     );
   }
 
   const systemPrompt = await buildPromptFromFicha(opts.fichaDir);
 
   const authStorage = AuthStorage.create();
-  authStorage.setRuntimeApiKey("anthropic", apiKey);
+  // TODO(sdd:llm-provider-cli): replace these casts with a typed catalog lookup.
+  // pi-ai's getModel constrains both args to literal types; until the catalog
+  // lands, we trust profile.yaml to declare valid provider/model strings.
+  authStorage.setRuntimeApiKey(llm.provider as KnownProvider, apiKey);
   const modelRegistry = ModelRegistry.create(authStorage);
 
-  const thinkingLevel = opts.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
+  const model = getModel(llm.provider as KnownProvider, llm.modelId as never);
+  const thinkingLevel = opts.thinkingLevel ?? llm.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
 
   const cwd = process.cwd();
   const agentDir = getAgentDir();
@@ -69,7 +70,7 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
         services,
         sessionManager,
         sessionStartEvent,
-        model: FIXED_MODEL,
+        model,
         thinkingLevel,
         tools: [],
         customTools: [],
