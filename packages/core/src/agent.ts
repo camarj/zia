@@ -63,6 +63,16 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
       resourceLoaderOptions: {
         systemPromptOverride: () => systemPrompt,
         appendSystemPromptOverride: () => [],
+        // Per zia's per-agent isolation rule: the agent's identity MUST come
+        // only from the ficha. Pi.dev's DefaultResourceLoader otherwise reads
+        // CLAUDE.md / AGENTS.md / skills / prompt-templates / extensions from
+        // the cwd, which leaks Claude Code's developer-facing persona into
+        // the agent's system prompt.
+        noContextFiles: true,
+        noSkills: true,
+        noPromptTemplates: true,
+        noExtensions: true,
+        noThemes: true,
       },
     });
     return {
