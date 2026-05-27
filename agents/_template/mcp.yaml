@@ -1,0 +1,16 @@
+# MCP servers que el agente monta al arrancar. Cada server expone sus tools
+# bajo el prefijo `mcp_<name>_*` (ej. `mcp_linear_create_issue`).
+# Sin servers configurados, el agente sigue funcionando con sus tools built-in.
+
+servers: []
+
+# Ejemplo:
+# servers:
+#   - name: linear
+#     command: npx -y @modelcontextprotocol/server-linear
+#     env:
+#       LINEAR_API_KEY: $AGENT_LINEAR_KEY
+#   - name: notion
+#     command: npx -y @modelcontextprotocol/server-notion
+#     env:
+#       NOTION_TOKEN: $AGENT_NOTION_KEY

@@ -1,0 +1,26 @@
+# Tools habilitadas para este agente.
+# Las pi.dev builtin tools (read, bash, edit, write, grep, find, ls) están disponibles
+# por defecto dentro del container del agente. Las que tienen efectos externos
+# requieren aprobación según POLICIES.md.
+
+enabled:
+  # Lectura / consulta — bajo riesgo
+  - email_read
+  - http_get
+  - sqlite_query
+
+  # Comunicación — requieren aprobación
+  - email_send
+  - slack_post
+  - http_post
+
+  # pi.dev builtins (operan solo dentro del container del agente)
+  - read
+  - bash
+  - edit
+  - write
+  - grep
+  - find
+  - ls
+
+disabled: []

@@ -1,0 +1,28 @@
+node_modules/
+dist/
+build/
+*.log
+.DS_Store
+.env
+.env.local
+.env.*.local
+*.tsbuildinfo
+coverage/
+.turbo/
+.next/
+.vercel/
+.pnpm-store/
+
+# Agent runtime state (per-agent SQLite, sessions)
+agents/*/data/
+agents/*/.session/
+!agents/_template/
+
+# Local secrets — credentials never go to git
+agents/*/.env
+agents/*/secrets/
+
+# IDE
+.vscode/
+.idea/
+*.swp

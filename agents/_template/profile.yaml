@@ -1,0 +1,61 @@
+# Identidad y autoridad del agente.
+# IMPORTANTE: nunca pongas secretos aquí. Usa siempre referencias `*_env: VAR_NAME`
+# y exporta los secretos como variables de entorno al arrancar el container.
+
+agent:
+  id: "REPLACE-WITH-SLUG-001"
+  name: "REPLACE WITH DISPLAY NAME"
+  email: "REPLACE@example.com"
+  email_server:
+    imap: mail.example.com:993
+    smtp: mail.example.com:465
+    credentials_env: AGENT_EMAIL_PASS
+
+bosses:
+  - email: "REPLACE-BOSS@example.com"
+    permissions: [approve_all, edit_ficha, view_audit, switch_model]
+
+accounts:
+  slack:
+    workspace: inteliside
+    bot_token_env: AGENT_SLACK_TOKEN
+  linear:
+    team: REPLACE
+    api_key_env: AGENT_LINEAR_KEY
+  github:
+    user: REPLACE-bot
+    token_env: AGENT_GITHUB_TOKEN
+
+# Lista de modelos disponibles. El primero (`default`) es el activo al arrancar.
+# El jefe humano puede cambiarlo en runtime vía Web UI, TUI (Ctrl+P), o RPC set_model.
+llm:
+  default:
+    provider: anthropic
+    model: claude-sonnet-4-6
+    thinkingLevel: medium
+  available:
+    - provider: anthropic
+      model: claude-opus-4-7
+      thinkingLevel: high
+      label: "Opus (razonamiento profundo)"
+      credentials_env: ANTHROPIC_API_KEY
+    - provider: anthropic
+      model: claude-sonnet-4-6
+      thinkingLevel: medium
+      label: "Sonnet (default, balance)"
+      credentials_env: ANTHROPIC_API_KEY
+    - provider: anthropic
+      model: claude-haiku-4-5-20251001
+      thinkingLevel: off
+      label: "Haiku (rápido y barato)"
+      credentials_env: ANTHROPIC_API_KEY
+    - provider: openai
+      model: gpt-4o
+      label: "GPT-4o (fallback no-Anthropic)"
+      credentials_env: OPENAI_API_KEY
+    - provider: ollama
+      model: llama3.1:70b
+      label: "Llama local (sin costo)"
+      base_url: http://localhost:11434
+  monthly_budget_usd: 50
+  fallback_on_error: true

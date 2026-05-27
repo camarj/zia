@@ -1,0 +1,49 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm:*)",
+      "Bash(npx skillsadd:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)",
+      "Bash(git checkout:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker build:*)",
+      "Bash(gentle-ai:*)",
+      "Bash(engram:*)",
+      "Edit",
+      "Write",
+      "Read",
+      "Grep",
+      "Glob"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(rm -rf:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "pathMatcher": ".*\\.(ts|tsx)$",
+        "command": "pnpm typecheck"
+      },
+      {
+        "matcher": "Edit|Write",
+        "pathMatcher": "agents/.*/profile\\.yaml$",
+        "command": "pnpm --filter @zia/core validate-ficha || true"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "patternMatcher": "git push.*main",
+        "command": "echo 'Direct push to main blocked. Open a PR.' && exit 1"
+      }
+    ]
+  }
+}
