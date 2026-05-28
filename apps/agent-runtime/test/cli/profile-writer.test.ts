@@ -108,6 +108,41 @@ llm:
     expect(content).toMatch(/credentials_env:\s*KEEP_ME/);
   });
 
+  it("writes baseUrl when provided (for custom OpenAI-compatible endpoints)", async () => {
+    const dir = await makeFicha(`llm:
+  default:
+    provider: openai
+    model: gpt-4o-mini
+`);
+
+    await updateProfileLlmDefault(dir, {
+      provider: "custom",
+      modelId: "llama3.1:8b",
+      baseUrl: "http://localhost:11434/v1",
+    });
+
+    const content = await readFile(join(dir, "profile.yaml"), "utf8");
+    expect(content).toMatch(/baseUrl:\s*['"]?http:\/\/localhost:11434\/v1['"]?/);
+  });
+
+  it("preserves baseUrl when not in the update (partial-update semantics)", async () => {
+    const dir = await makeFicha(`llm:
+  default:
+    provider: custom
+    model: llama3.1:8b
+    baseUrl: http://keep-me.example/v1
+`);
+
+    await updateProfileLlmDefault(dir, {
+      provider: "custom",
+      modelId: "llama3.1:70b",
+      // baseUrl omitted — must be preserved
+    });
+
+    const content = await readFile(join(dir, "profile.yaml"), "utf8");
+    expect(content).toMatch(/baseUrl:\s*['"]?http:\/\/keep-me\.example\/v1['"]?/);
+  });
+
   it("preserves thinkingLevel when not in the update", async () => {
     const dir = await makeFicha(`llm:
   default:

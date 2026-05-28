@@ -57,9 +57,13 @@ llm:
       model: gpt-4o
       label: "GPT-4o (fallback no-Anthropic)"
       credentials_env: OPENAI_API_KEY
-    - provider: ollama
+    # Custom OpenAI-compatible endpoint (Ollama, vLLM, LiteLLM, …).
+    # `provider: custom` + `baseUrl` is what the resolver looks for. The CLI
+    # `zia model` picker writes this shape automatically after validating the
+    # endpoint with GET ${baseUrl}/v1/models.
+    - provider: custom
       model: llama3.1:70b
       label: "Llama local (sin costo)"
-      base_url: http://localhost:11434
+      baseUrl: http://localhost:11434/v1
   monthly_budget_usd: 50
   fallback_on_error: true
