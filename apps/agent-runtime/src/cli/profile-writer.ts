@@ -8,10 +8,14 @@ export interface ProfileLlmUpdate {
   provider: string;
   modelId: string;
   thinkingLevel?: ResolvedThinkingLevel;
-  /** When `undefined`, any existing `credentials_env` line is REMOVED so the
-   * resolver falls back to the catalog default. When set, written as
-   * `credentials_env: <value>` (snake_case to match the YAML convention). */
+  /** When `undefined`, any existing `credentials_env` line is preserved so a
+   * partial update (e.g. provider+model only) does not silently drop the env
+   * binding. When set, written as `credentials_env: <value>` (snake_case to
+   * match the YAML convention). Use {@link clearProfileLlmField} to remove. */
   credentialEnv?: string;
+  /** Custom OpenAI-compatible endpoint base URL (Ollama, vLLM, LiteLLM, …).
+   * Partial-update semantics: omitted → preserved; set → written. */
+  baseUrl?: string;
 }
 
 /**
@@ -70,6 +74,9 @@ export async function updateProfileLlmDefault(
   }
   if (update.credentialEnv !== undefined) {
     def.set("credentials_env", update.credentialEnv);
+  }
+  if (update.baseUrl !== undefined) {
+    def.set("baseUrl", update.baseUrl);
   }
 
   await writeFile(profilePath, doc.toString(), "utf8");

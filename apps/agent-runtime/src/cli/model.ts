@@ -8,14 +8,16 @@ import { providerCatalog, type Provider } from "@zia/providers";
 
 import { upsertCredential } from "./credential-writer.ts";
 import { updateProfileLlmDefault } from "./profile-writer.ts";
+import { validateEndpoint } from "./validate-endpoint.ts";
 
 const CUSTOM_MODEL_SENTINEL = "__custom_model_id__";
+const CUSTOM_ENDPOINT_SENTINEL = "__custom_endpoint__";
 
 /**
- * Interactive `zia model` flow — PR 2 covers the api-key path only.
- * OAuth providers (github-copilot, openai-codex) and the `custom`
- * OpenAI-compatible endpoint flow land in PRs 3 and 4 of the
- * `llm-provider-cli` SDD.
+ * Interactive `zia model` flow — supports api-key providers (PR 2) and a
+ * custom OpenAI-compatible endpoint (Ollama, vLLM, LiteLLM, …) which lands
+ * in PR 3. OAuth providers (github-copilot, openai-codex) land in PR 4 of
+ * the `llm-provider-cli` SDD.
  *
  * Usage: `pnpm --filter @zia/agent-runtime model <ficha-dir>`
  *
@@ -51,12 +53,24 @@ async function main(): Promise<void> {
 
   const providerKey = await select<string>({
     message: "Provider:",
-    choices: apiKeyProviders.map((p) => ({
-      name: p.label,
-      value: p.key,
-      description: p.credentialEnv,
-    })),
+    choices: [
+      ...apiKeyProviders.map((p) => ({
+        name: p.label,
+        value: p.key,
+        description: p.credentialEnv,
+      })),
+      {
+        name: "Custom OpenAI-compatible endpoint (Ollama, vLLM, LiteLLM, …)",
+        value: CUSTOM_ENDPOINT_SENTINEL,
+        description: "Self-hosted endpoint; no API key written",
+      },
+    ],
   });
+
+  if (providerKey === CUSTOM_ENDPOINT_SENTINEL) {
+    await runCustomEndpointFlow(fichaDir, arg);
+    return;
+  }
 
   const provider = apiKeyProviders.find((p) => p.key === providerKey);
   if (!provider) {
@@ -96,6 +110,50 @@ async function main(): Promise<void> {
     `\nSaved ${provider.key} / ${modelId} to ${fichaDir}/profile.yaml.\n` +
       `Credential ${provider.credentialEnv} written to ${fichaDir}/.env (chmod 600).\n` +
       `Run: pnpm --filter @zia/agent-runtime tui ${arg}\n`,
+  );
+}
+
+async function runCustomEndpointFlow(fichaDir: string, fichaArg: string): Promise<void> {
+  const baseUrl = await input({
+    message: "Base URL (e.g. http://localhost:11434 or http://host:8000/v1):",
+    validate: (value) => {
+      const trimmed = value.trim();
+      if (trimmed === "") return "base URL cannot be empty";
+      try {
+        // eslint-disable-next-line no-new
+        new URL(trimmed);
+        return true;
+      } catch {
+        return "must be a parseable URL (include protocol, e.g. http://)";
+      }
+    },
+  });
+
+  const modelId = await input({
+    message: "Model id (as the endpoint expects it, e.g. llama3.1:8b):",
+    validate: (v) => (v.trim() === "" ? "model id cannot be empty" : true),
+  });
+
+  // Validate BEFORE touching the filesystem so a bogus URL leaves
+  // profile.yaml and .env untouched.
+  try {
+    await validateEndpoint(baseUrl.trim());
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`zia: endpoint validation failed: ${message}\n`);
+    process.exit(1);
+  }
+
+  await updateProfileLlmDefault(fichaDir, {
+    provider: "custom",
+    modelId: modelId.trim(),
+    baseUrl: baseUrl.trim(),
+  });
+
+  process.stdout.write(
+    `\nSaved custom / ${modelId.trim()} (${baseUrl.trim()}) to ${fichaDir}/profile.yaml.\n` +
+      `No credential written — custom endpoints typically handle auth at the endpoint level.\n` +
+      `Run: pnpm --filter @zia/agent-runtime tui ${fichaArg}\n`,
   );
 }
 

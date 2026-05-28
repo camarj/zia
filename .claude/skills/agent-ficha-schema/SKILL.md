@@ -122,15 +122,23 @@ llm:
       model: gpt-4o
       label: "GPT-4o (fallback)"
       credentials_env: OPENAI_API_KEY
-    - provider: ollama
+    - provider: custom
       model: llama3.1:70b
-      label: "Llama local"
-      base_url: http://localhost:11434
+      label: "Llama local (Ollama)"
+      baseUrl: http://localhost:11434/v1
   monthly_budget_usd: 50
   fallback_on_error: true
 ```
 
 **CRITICAL:** never put the actual secrets in this file. Always use `*_env: VAR_NAME` and inject the secret at container runtime via `docker-compose.yml` or `.env`.
+
+#### Custom OpenAI-compatible endpoints (Ollama, vLLM, LiteLLM, …)
+
+Self-hosted endpoints use `provider: custom` plus a `baseUrl` field (camelCase). The resolver in `@zia/providers` treats `custom` as an OpenAI-compatible provider and routes through `pi-ai`'s `openai-completions` model class.
+
+- `baseUrl` MUST be parseable (`new URL(...)`). It SHOULD end with `/v1` (pi-ai's expectation); the CLI validator accepts either `http://host:port` or `http://host:port/v1` and normalises before pinging.
+- The CLI `zia model` picker offers a "Custom OpenAI-compatible endpoint" branch. Before writing anything it issues `GET ${baseUrl}/v1/models` with a 5-second timeout; on non-2xx, network failure, or timeout it aborts and leaves `profile.yaml` and `.env` unchanged.
+- No credential is written for custom endpoints — most self-hosted setups don't need an API key, and the operator owns auth at the endpoint level. If your endpoint requires a key, add it manually to `.env` and reference it in `available[]` with `credentials_env`.
 
 ### `tools.yaml` — enabled capabilities
 
