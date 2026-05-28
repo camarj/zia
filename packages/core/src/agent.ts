@@ -9,7 +9,7 @@ import {
   type AgentSessionRuntime,
   type CreateAgentSessionRuntimeFactory,
 } from "@earendil-works/pi-coding-agent";
-import { readFichaLlm, resolveModelFromFicha } from "@zia/providers";
+import { isOAuthProvider, readFichaLlm, resolveModelFromFicha } from "@zia/providers";
 
 import { buildPromptFromFicha } from "./prompt-builder.ts";
 
@@ -35,7 +35,12 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
   const systemPrompt = await buildPromptFromFicha(opts.fichaDir);
 
   const authStorage = AuthStorage.create();
-  if (declaration.provider !== "custom") {
+  // Skip setRuntimeApiKey for:
+  //   - "custom" endpoints (no API key; the endpoint handles auth itself)
+  //   - OAuth providers (github-copilot, openai-codex): credentials live in
+  //     auth.json and are loaded automatically by AuthStorage.create(). Calling
+  //     setRuntimeApiKey with an env-var value would be wrong — there is none.
+  if (declaration.provider !== "custom" && !isOAuthProvider(declaration.provider)) {
     const credentialEnv = declaration.credentialEnv ?? defaultCredentialEnv(declaration.provider);
     const value = credentialEnv ? process.env[credentialEnv] : undefined;
     if (credentialEnv && value) {

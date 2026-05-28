@@ -14,6 +14,12 @@ importers:
 
   apps/agent-runtime:
     dependencies:
+      '@earendil-works/pi-ai':
+        specifier: ^0.76.0
+        version: 0.76.0(ws@8.21.0)(zod@3.25.76)
+      '@earendil-works/pi-coding-agent':
+        specifier: ^0.76.0
+        version: 0.76.0(ws@8.21.0)(zod@3.25.76)
       '@inquirer/prompts':
         specifier: ^7.2.1
         version: 7.10.1(@types/node@22.19.19)

@@ -4,9 +4,10 @@ import { resolve } from "node:path";
 import process from "node:process";
 
 import { input, password, select } from "@inquirer/prompts";
-import { providerCatalog, type Provider } from "@zia/providers";
+import { isOAuthProvider, providerCatalog, type Provider } from "@zia/providers";
 
 import { upsertCredential } from "./credential-writer.ts";
+import { runOAuthFlow, type OAuthProviderId } from "./oauth-flow.ts";
 import { updateProfileLlmDefault } from "./profile-writer.ts";
 import { validateEndpoint } from "./validate-endpoint.ts";
 
@@ -14,18 +15,21 @@ const CUSTOM_MODEL_SENTINEL = "__custom_model_id__";
 const CUSTOM_ENDPOINT_SENTINEL = "__custom_endpoint__";
 
 /**
- * Interactive `zia model` flow — supports api-key providers (PR 2) and a
- * custom OpenAI-compatible endpoint (Ollama, vLLM, LiteLLM, …) which lands
- * in PR 3. OAuth providers (github-copilot, openai-codex) land in PR 4 of
- * the `llm-provider-cli` SDD.
+ * Interactive `zia model` flow — supports three credential paths:
+ *
+ *   1. API-key providers (Anthropic, OpenAI, …): prompt for key → write to .env
+ *   2. Custom OpenAI-compatible endpoint (Ollama, vLLM, …): validate URL → no creds written
+ *   3. OAuth providers (GitHub Copilot, OpenAI Codex): browser/device-code flow → auth.json
  *
  * Usage: `pnpm --filter @zia/agent-runtime model <ficha-dir>`
  *
  * On success:
  * - `${fichaDir}/profile.yaml` is updated under `llm.default`
  *   (preserving comments) with the chosen provider + model.
- * - `${fichaDir}/.env` upserts the credential under the catalog's
- *   default env-var name with `chmod 600`.
+ * - For api-key providers: `${fichaDir}/.env` upserts the credential (chmod 600).
+ * - For OAuth providers: credentials are persisted to `~/.pi/agent/auth.json`
+ *   (or `$PI_CODING_AGENT_DIR/auth.json`) — NOT to .env.
+ * - For custom endpoints: no credential file is written.
  */
 async function main(): Promise<void> {
   const arg = process.argv[2];
@@ -50,6 +54,7 @@ async function main(): Promise<void> {
   }
 
   const apiKeyProviders = providerCatalog.filter((p) => p.type === "api-key");
+  const oauthProviders = providerCatalog.filter((p) => p.type === "oauth");
 
   const providerKey = await select<string>({
     message: "Provider:",
@@ -58,6 +63,11 @@ async function main(): Promise<void> {
         name: p.label,
         value: p.key,
         description: p.credentialEnv,
+      })),
+      ...oauthProviders.map((p) => ({
+        name: p.label,
+        value: p.key,
+        description: "OAuth — browser/device-code flow; token saved to auth.json",
       })),
       {
         name: "Custom OpenAI-compatible endpoint (Ollama, vLLM, LiteLLM, …)",
@@ -69,6 +79,11 @@ async function main(): Promise<void> {
 
   if (providerKey === CUSTOM_ENDPOINT_SENTINEL) {
     await runCustomEndpointFlow(fichaDir, arg);
+    return;
+  }
+
+  if (isOAuthProvider(providerKey)) {
+    await runOAuthProviderFlow(fichaDir, arg, providerKey as OAuthProviderId);
     return;
   }
 
@@ -110,6 +125,37 @@ async function main(): Promise<void> {
     `\nSaved ${provider.key} / ${modelId} to ${fichaDir}/profile.yaml.\n` +
       `Credential ${provider.credentialEnv} written to ${fichaDir}/.env (chmod 600).\n` +
       `Run: pnpm --filter @zia/agent-runtime tui ${arg}\n`,
+  );
+}
+
+async function runOAuthProviderFlow(
+  fichaDir: string,
+  fichaArg: string,
+  providerKey: OAuthProviderId,
+): Promise<void> {
+  const oauthProvider = providerCatalog.find((p) => p.key === providerKey);
+  if (!oauthProvider) {
+    throw new Error(`zia: unexpected OAuth provider key "${providerKey}"`);
+  }
+
+  const modelId = await pickModelId(oauthProvider);
+
+  process.stdout.write(`\nStarting OAuth flow for ${oauthProvider.label}…\n`);
+
+  // OAuth credentials go to auth.json via AuthStorage — NOT to .env.
+  await runOAuthFlow(providerKey);
+
+  // Update profile.yaml to set this provider + model as llm.default.
+  // No credentials_env is written — auth.json is the credential store.
+  await updateProfileLlmDefault(fichaDir, {
+    provider: providerKey,
+    modelId,
+  });
+
+  process.stdout.write(
+    `\nSaved ${providerKey} / ${modelId} to ${fichaDir}/profile.yaml.\n` +
+      `OAuth token saved to auth.json (shared with the agent runtime).\n` +
+      `Run: pnpm --filter @zia/agent-runtime tui ${fichaArg}\n`,
   );
 }
 

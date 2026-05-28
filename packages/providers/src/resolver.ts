@@ -2,6 +2,7 @@ import { getModel } from "@earendil-works/pi-ai";
 
 import { findProvider, providerCatalog } from "./catalog.ts";
 import { readFichaLlm } from "./ficha.ts";
+import { isOAuthProvider } from "./oauth.ts";
 import type { KnownProvider, Model } from "./types.ts";
 
 /**
@@ -13,16 +14,16 @@ import type { KnownProvider, Model } from "./types.ts";
  * sentinel it builds a `Model<'openai-completions'>` with the ficha's
  * `baseUrl` — used for self-hosted endpoints like Ollama, vLLM, LiteLLM.
  *
- * Credential resolution: for api-key providers, the env-var name is read from
- * the ficha's `credentials_env` override OR the catalog's default
- * (`credentialEnv`). For the `custom` provider, credentials are NOT required
- * here — the operator is expected to make the endpoint reachable however the
- * endpoint requires (often no auth for local Ollama).
- *
- * OAuth providers (github-copilot, openai-codex) are recognized but PR 4 of
- * the llm-provider-cli SDD wires the actual OAuth helper invocation. Until
- * then the resolver treats them like api-key providers expecting the OAuth
- * token blob under a `<PROVIDER>_OAUTH_TOKEN_JSON` env var.
+ * Credential resolution:
+ * - api-key providers: env-var name from `credentials_env` override or catalog
+ *   default. Throws with a `zia model` remediation hint when the var is unset.
+ * - custom provider: no credential required here; the operator handles auth at
+ *   the endpoint level.
+ * - OAuth providers (github-copilot, openai-codex): credentials are owned by
+ *   pi.dev's AuthStorage (persisted to auth.json). The resolver does NOT check
+ *   env vars for these providers — AuthStorage.getApiKey() auto-refreshes when
+ *   the agent runtime creates its session. See engram #556 for the full
+ *   rationale (Option B: delegate OAuth to pi.dev, not .env blobs).
  *
  * @param env - process env (test seam). Defaults to `process.env`.
  */
@@ -50,6 +51,13 @@ export async function resolveModelFromFicha(
     throw new Error(
       `zia: unknown provider "${declaration.provider}" in profile.yaml. Known: ${knownKeys}, custom.`,
     );
+  }
+
+  // OAuth providers: credentials live in auth.json managed by pi.dev's
+  // AuthStorage. Skip env-var credential check entirely — the agent runtime's
+  // AuthStorage.create() will load and auto-refresh the token at session start.
+  if (isOAuthProvider(entry.key)) {
+    return getModel(entry.key as KnownProvider, declaration.modelId as never);
   }
 
   const credentialEnv = declaration.credentialEnv ?? entry.credentialEnv;
