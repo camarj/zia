@@ -46,6 +46,21 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.19)
 
+  packages/callbacks:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.19
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.3
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.19)
+
   packages/core:
     dependencies:
       '@earendil-works/pi-ai':
