@@ -1,0 +1,16 @@
+{
+  "name": "@zia/callbacks",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Governance callbacks for zia — POLICIES.md risk classifier (approval, clarify, observability)",
+  "license": "MIT",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc --noEmit", "test": "vitest run" },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.8"
+  }
+}
