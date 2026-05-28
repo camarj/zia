@@ -73,7 +73,14 @@ export type { OAuthProviderId } from "@zia/providers";
  *   - `onPrompt`:     asks the user for input via @inquirer/prompts (manual code, etc.).
  *   - `onSelect`:     renders a list with @inquirer/prompts.
  *   - `onProgress`:   prints a progress line to stdout.
- *   - `onManualCodeInput`: prompts for manual code entry.
+ *
+ * We deliberately do NOT wire `onManualCodeInput`. For the openai-codex PKCE
+ * flow, pi.dev races the local-callback server against `onManualCodeInput`;
+ * when the browser callback wins, `loginOpenAICodex` returns WITHOUT awaiting
+ * or cancelling the manual-input promise, leaving an orphaned inquirer prompt
+ * that hangs the process. Omitting it makes the SDK wait for the browser
+ * callback and fall back to `onPrompt` only when no code arrives (e.g. headless
+ * / SSH), which still supports manual paste.
  *
  * When the function resolves, the credential is persisted to auth.json.
  */
@@ -125,13 +132,6 @@ export async function runOAuthFlow(providerId: OAuthProviderId): Promise<void> {
 
     onProgress(message: string): void {
       process.stdout.write(`  ${message}\n`);
-    },
-
-    async onManualCodeInput(): Promise<string> {
-      return input({
-        message: "Paste the authorisation code:",
-        validate: (v) => (v.trim() === "" ? "code cannot be empty" : true),
-      });
     },
   };
 

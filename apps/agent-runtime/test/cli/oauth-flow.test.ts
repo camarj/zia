@@ -88,7 +88,7 @@ describe("runOAuthFlow", () => {
     expect(typeof callbacks.onSelect).toBe("function");
   });
 
-  it("passes optional callbacks (onProgress, onManualCodeInput)", async () => {
+  it("wires onProgress but deliberately omits onManualCodeInput", async () => {
     await runOAuthFlow("github-copilot");
 
     const calls = loginMock.mock.calls as Array<[string, Record<string, unknown>]>;
@@ -96,7 +96,10 @@ describe("runOAuthFlow", () => {
     expect(firstCall).toBeDefined();
     const callbacks = firstCall![1];
     expect(typeof callbacks.onProgress).toBe("function");
-    expect(typeof callbacks.onManualCodeInput).toBe("function");
+    // onManualCodeInput is intentionally NOT passed: for the openai-codex PKCE
+    // flow it races the browser callback and, when the browser wins, leaves an
+    // orphaned inquirer prompt that hangs the process. onPrompt is the fallback.
+    expect(callbacks.onManualCodeInput).toBeUndefined();
   });
 
   it("onDeviceCode callback writes user code and verification URI to stdout", async () => {
