@@ -12,6 +12,8 @@
     "model": "tsx src/cli/model.ts"
   },
   "dependencies": {
+    "@earendil-works/pi-ai": "^0.76.0",
+    "@earendil-works/pi-coding-agent": "^0.76.0",
     "@inquirer/prompts": "^7.2.1",
     "@zia/core": "workspace:*",
     "@zia/providers": "workspace:*",

@@ -111,7 +111,7 @@ export const providerCatalog: readonly Provider[] = [
     label: "OpenAI Codex (OAuth — ChatGPT Plus/Pro)",
     type: "oauth",
     oauthHelper: "openai-codex",
-    defaultModels: ["codex-mini-latest"],
+    defaultModels: ["gpt-5.4-mini", "gpt-5.4", "gpt-5.3-codex"],
   },
   {
     key: "custom",

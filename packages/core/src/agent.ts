@@ -9,7 +9,7 @@ import {
   type AgentSessionRuntime,
   type CreateAgentSessionRuntimeFactory,
 } from "@earendil-works/pi-coding-agent";
-import { readFichaLlm, resolveModelFromFicha } from "@zia/providers";
+import { isOAuthProvider, readFichaLlm, resolveModelFromFicha } from "@zia/providers";
 
 import { buildPromptFromFicha } from "./prompt-builder.ts";
 
@@ -35,7 +35,20 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
   const systemPrompt = await buildPromptFromFicha(opts.fichaDir);
 
   const authStorage = AuthStorage.create();
-  if (declaration.provider !== "custom") {
+  if (isOAuthProvider(declaration.provider)) {
+    // OAuth providers (github-copilot, openai-codex) keep their credentials in
+    // auth.json, loaded automatically by AuthStorage.create(). Fail early with
+    // an actionable hint if the user never authenticated — otherwise the error
+    // surfaces deep inside the first LLM call as a cryptic "unauthorized".
+    if (!authStorage.hasAuth(declaration.provider)) {
+      throw new Error(
+        `zia: no OAuth credentials found for "${declaration.provider}". ` +
+          `Run \`pnpm --filter @zia/agent-runtime model ${opts.fichaDir}\` to authenticate.`,
+      );
+    }
+  } else if (declaration.provider !== "custom") {
+    // "custom" endpoints handle auth themselves; everything else is an api-key
+    // provider whose key comes from an env var.
     const credentialEnv = declaration.credentialEnv ?? defaultCredentialEnv(declaration.provider);
     const value = credentialEnv ? process.env[credentialEnv] : undefined;
     if (credentialEnv && value) {

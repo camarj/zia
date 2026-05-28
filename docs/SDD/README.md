@@ -67,12 +67,15 @@ Artifacts live in Engram (project `zia`). Look them up via `mem_search` or `engr
 | Verify report | `sdd/phase-0-core-spike/verify-report` | PASS WITH WARNINGS |
 | Archive report | `sdd/phase-0-core-spike/archive-report` | done |
 
-### `llm-provider-cli` — ready to apply
+### `llm-provider-cli` ✅ applied (PRs 1–4 merged)
 
-| Phase | Topic key | Status |
-|---|---|---|
-| Explore | `sdd/llm-provider-cli/explore` | done |
-| Proposal | `sdd/llm-provider-cli/proposal` | done |
-| Design | `sdd/llm-provider-cli/design` | done |
-| Spec | `sdd/llm-provider-cli/spec` | done |
-| Tasks | `sdd/llm-provider-cli/tasks` | done |
+| Phase | Topic key | Engram ID | Status |
+|---|---|---|---|
+| Explore | `sdd/llm-provider-cli/explore` | — | done |
+| Proposal | `sdd/llm-provider-cli/proposal` | — | done |
+| Design | `sdd/llm-provider-cli/design` | — | done |
+| Spec | `sdd/llm-provider-cli/spec` | #541 | done |
+| Tasks | `sdd/llm-provider-cli/tasks` | #542 | done (4-PR split) |
+| Apply progress | `sdd/llm-provider-cli/apply-progress` | — | done |
+
+**Key design override (engram #556):** OAuth credential storage was changed from `.env` JSON blobs (original spec) to pi.dev's native `AuthStorage` (auth.json). See `decision/oauth-credential-storage` in engram for the full rationale.

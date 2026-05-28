@@ -102,4 +102,36 @@ describe("resolveModelFromFicha", () => {
     const model = await resolveModelFromFicha(dir, {});
     expect(model.provider).toBe("custom");
   });
+
+  it("resolves github-copilot (OAuth) without requiring any env credential", async () => {
+    const dir = await makeFicha(`llm:
+  default:
+    provider: github-copilot
+    model: claude-sonnet-4.5
+`);
+    // No env vars passed — OAuth providers must NOT require an env credential.
+    const model = await resolveModelFromFicha(dir, {});
+    expect(model.provider).toBe("github-copilot");
+    expect(model.id).toBe("claude-sonnet-4.5");
+  });
+
+  it("resolves openai-codex (OAuth) without requiring any env credential", async () => {
+    const dir = await makeFicha(`llm:
+  default:
+    provider: openai-codex
+    model: gpt-5.4-mini
+`);
+    const model = await resolveModelFromFicha(dir, {});
+    expect(model.provider).toBe("openai-codex");
+    expect(model.id).toBe("gpt-5.4-mini");
+  });
+
+  it("still rejects unknown providers even when no env credential is provided", async () => {
+    const dir = await makeFicha(`llm:
+  default:
+    provider: definitely-not-a-provider
+    model: x
+`);
+    await expect(resolveModelFromFicha(dir, {})).rejects.toThrow(/definitely-not-a-provider/);
+  });
 });
