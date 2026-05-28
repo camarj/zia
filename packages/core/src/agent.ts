@@ -35,12 +35,20 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
   const systemPrompt = await buildPromptFromFicha(opts.fichaDir);
 
   const authStorage = AuthStorage.create();
-  // Skip setRuntimeApiKey for:
-  //   - "custom" endpoints (no API key; the endpoint handles auth itself)
-  //   - OAuth providers (github-copilot, openai-codex): credentials live in
-  //     auth.json and are loaded automatically by AuthStorage.create(). Calling
-  //     setRuntimeApiKey with an env-var value would be wrong — there is none.
-  if (declaration.provider !== "custom" && !isOAuthProvider(declaration.provider)) {
+  if (isOAuthProvider(declaration.provider)) {
+    // OAuth providers (github-copilot, openai-codex) keep their credentials in
+    // auth.json, loaded automatically by AuthStorage.create(). Fail early with
+    // an actionable hint if the user never authenticated — otherwise the error
+    // surfaces deep inside the first LLM call as a cryptic "unauthorized".
+    if (!authStorage.hasAuth(declaration.provider)) {
+      throw new Error(
+        `zia: no OAuth credentials found for "${declaration.provider}". ` +
+          `Run \`pnpm --filter @zia/agent-runtime model ${opts.fichaDir}\` to authenticate.`,
+      );
+    }
+  } else if (declaration.provider !== "custom") {
+    // "custom" endpoints handle auth themselves; everything else is an api-key
+    // provider whose key comes from an env var.
     const credentialEnv = declaration.credentialEnv ?? defaultCredentialEnv(declaration.provider);
     const value = credentialEnv ? process.env[credentialEnv] : undefined;
     if (credentialEnv && value) {

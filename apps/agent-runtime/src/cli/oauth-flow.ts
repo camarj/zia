@@ -48,7 +48,7 @@
  * There is NO plain "codex" id; use "openai-codex".
  */
 
-import { select } from "@inquirer/prompts";
+import { input, select } from "@inquirer/prompts";
 import { AuthStorage } from "@earendil-works/pi-coding-agent";
 import type {
   OAuthAuthInfo,
@@ -58,14 +58,12 @@ import type {
   OAuthSelectPrompt,
 } from "@earendil-works/pi-ai";
 
-/** Provider IDs that use the OAuth flow rather than an API key. */
-export const OAUTH_PROVIDER_IDS = ["github-copilot", "openai-codex"] as const;
-export type OAuthProviderId = (typeof OAUTH_PROVIDER_IDS)[number];
-
-/** Returns true when the given provider key should use the OAuth flow. */
-export function isOAuthProvider(providerKey: string): providerKey is OAuthProviderId {
-  return (OAUTH_PROVIDER_IDS as readonly string[]).includes(providerKey);
-}
+// OAUTH_PROVIDER_IDS, isOAuthProvider, and OAuthProviderId all live in
+// @zia/providers (the one authoritative source) so the CLI and the agent
+// runtime never drift. Import the type from there; re-export it for callers
+// that already pull it from this module.
+import type { OAuthProviderId } from "@zia/providers";
+export type { OAuthProviderId } from "@zia/providers";
 
 /**
  * Run the OAuth login flow for `providerId` using pi.dev's `AuthStorage`.
@@ -100,12 +98,12 @@ export async function runOAuthFlow(providerId: OAuthProviderId): Promise<void> {
     },
 
     async onPrompt(prompt: OAuthPrompt): Promise<string> {
-      // @inquirer/prompts — `input` handles plain text, `password` would mask.
       // The SDK uses onPrompt for things like "Enter the code shown in the browser".
-      const { input } = await import("@inquirer/prompts");
+      // `placeholder` is a hint, NOT a submittable value — fold it into the
+      // message rather than passing it as inquirer's `default` (which would be
+      // submitted verbatim when the user presses Enter on an empty input).
       return input({
-        message: prompt.message,
-        default: prompt.placeholder,
+        message: prompt.placeholder ? `${prompt.message} (${prompt.placeholder})` : prompt.message,
         validate: (v) => {
           if (!prompt.allowEmpty && (!v || v.trim() === "")) {
             return "value cannot be empty";
@@ -130,7 +128,6 @@ export async function runOAuthFlow(providerId: OAuthProviderId): Promise<void> {
     },
 
     async onManualCodeInput(): Promise<string> {
-      const { input } = await import("@inquirer/prompts");
       return input({
         message: "Paste the authorisation code:",
         validate: (v) => (v.trim() === "" ? "code cannot be empty" : true),

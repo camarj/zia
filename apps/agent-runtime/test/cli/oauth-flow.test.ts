@@ -17,7 +17,11 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
   AuthStorage: { create: createMock },
 }));
 
-import { runOAuthFlow, isOAuthProvider, OAUTH_PROVIDER_IDS } from "../../src/cli/oauth-flow.ts";
+// isOAuthProvider / OAUTH_PROVIDER_IDS are the canonical @zia/providers exports;
+// runOAuthFlow lives in the CLI module under test.
+import { isOAuthProvider, OAUTH_PROVIDER_IDS } from "@zia/providers";
+
+import { runOAuthFlow } from "../../src/cli/oauth-flow.ts";
 
 describe("isOAuthProvider", () => {
   it("returns true for github-copilot", () => {

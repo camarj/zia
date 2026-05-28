@@ -4,10 +4,10 @@ import { resolve } from "node:path";
 import process from "node:process";
 
 import { input, password, select } from "@inquirer/prompts";
-import { isOAuthProvider, providerCatalog, type Provider } from "@zia/providers";
+import { isOAuthProvider, providerCatalog, type OAuthProviderId, type Provider } from "@zia/providers";
 
 import { upsertCredential } from "./credential-writer.ts";
-import { runOAuthFlow, type OAuthProviderId } from "./oauth-flow.ts";
+import { runOAuthFlow } from "./oauth-flow.ts";
 import { updateProfileLlmDefault } from "./profile-writer.ts";
 import { validateEndpoint } from "./validate-endpoint.ts";
 
@@ -83,7 +83,8 @@ async function main(): Promise<void> {
   }
 
   if (isOAuthProvider(providerKey)) {
-    await runOAuthProviderFlow(fichaDir, arg, providerKey as OAuthProviderId);
+    // `isOAuthProvider` is a type guard, so `providerKey` is now OAuthProviderId.
+    await runOAuthProviderFlow(fichaDir, arg, providerKey);
     return;
   }
 

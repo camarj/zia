@@ -62,4 +62,21 @@ describe("createZiaAgent — ficha-driven configuration", () => {
 
     await expect(createZiaAgent({ fichaDir })).rejects.toThrow(/made-up/);
   });
+
+  it("fails early with a `zia model` hint when an OAuth provider has no auth.json", async () => {
+    // Point AuthStorage at an empty dir so `hasAuth` is deterministically false
+    // regardless of any real ~/.pi/agent/auth.json on the host.
+    const emptyAgentDir = await mkdtemp(join(tmpdir(), "zia-pi-agent-"));
+    createdDirs.push(emptyAgentDir);
+    process.env.PI_CODING_AGENT_DIR = emptyAgentDir;
+
+    const fichaDir = await makeFicha(
+      `llm:\n  default:\n    provider: github-copilot\n    model: claude-sonnet-4.5\n`,
+      "# soul\n",
+    );
+
+    await expect(createZiaAgent({ fichaDir })).rejects.toThrow(
+      /no OAuth credentials found for "github-copilot".*to authenticate/s,
+    );
+  });
 });
