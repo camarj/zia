@@ -9,7 +9,7 @@ import {
   type AgentSessionRuntime,
   type CreateAgentSessionRuntimeFactory,
 } from "@earendil-works/pi-coding-agent";
-import { isOAuthProvider, readFichaLlm, resolveModelFromFicha } from "@zia/providers";
+import { findProvider, isOAuthProvider, readFichaLlm, resolveModelFromFicha } from "@zia/providers";
 
 import { buildPromptFromFicha } from "./prompt-builder.ts";
 
@@ -49,7 +49,7 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
   } else if (declaration.provider !== "custom") {
     // "custom" endpoints handle auth themselves; everything else is an api-key
     // provider whose key comes from an env var.
-    const credentialEnv = declaration.credentialEnv ?? defaultCredentialEnv(declaration.provider);
+    const credentialEnv = declaration.credentialEnv ?? findProvider(declaration.provider)?.credentialEnv;
     const value = credentialEnv ? process.env[credentialEnv] : undefined;
     if (credentialEnv && value) {
       // Cast: the resolver already validated the provider key is in the catalog;
@@ -110,33 +110,4 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
   });
 
   return { runtime };
-}
-
-// Minimal duplication of the catalog's credential-env defaults so that
-// AuthStorage registration knows where to read the key. The full catalog
-// lookup happens inside `resolveModelFromFicha`; this only needs the common
-// providers we expect to hit before PR 4's OAuth helpers land.
-function defaultCredentialEnv(provider: string): string | undefined {
-  switch (provider) {
-    case "anthropic":
-      return "ANTHROPIC_API_KEY";
-    case "openai":
-      return "OPENAI_API_KEY";
-    case "google":
-      return "GEMINI_API_KEY";
-    case "deepseek":
-      return "DEEPSEEK_API_KEY";
-    case "groq":
-      return "GROQ_API_KEY";
-    case "together":
-      return "TOGETHER_API_KEY";
-    case "openrouter":
-      return "OPENROUTER_API_KEY";
-    case "xai":
-      return "XAI_API_KEY";
-    case "mistral":
-      return "MISTRAL_API_KEY";
-    default:
-      return undefined;
-  }
 }
