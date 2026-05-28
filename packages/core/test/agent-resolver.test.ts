@@ -44,6 +44,19 @@ describe("createZiaAgent — ficha-driven configuration", () => {
     await expect(createZiaAgent({ fichaDir })).rejects.toThrow(/OPENAI_API_KEY/);
   });
 
+  it("recognizes a catalog provider the old hardcoded switch omitted (opencode-go)", async () => {
+    // opencode-go + amazon-bedrock were missing from agent.ts's defaultCredentialEnv
+    // switch; credential env now comes from the @zia/providers catalog, so the
+    // env-var name is resolved for every api-key provider, not just the common ones.
+    delete process.env.OPENCODE_GO_API_KEY;
+    const fichaDir = await makeFicha(
+      `llm:\n  default:\n    provider: opencode-go\n    model: kimi-k2.5\n`,
+      "# soul\n",
+    );
+
+    await expect(createZiaAgent({ fichaDir })).rejects.toThrow(/OPENCODE_GO_API_KEY/);
+  });
+
   it("surfaces a missing-SOUL.md error from the prompt builder", async () => {
     process.env.OPENAI_API_KEY = "sk-test";
     const fichaDir = await makeFicha(
