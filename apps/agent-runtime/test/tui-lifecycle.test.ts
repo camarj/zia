@@ -51,6 +51,22 @@ vi.mock("@zia/core", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock @zia/persistence — keep the lifecycle test off the real SQLite file.
+// Without this, openDatabase(join(fichaDir, "zia.db")) would create a real
+// agents/_template/zia.db as a side effect of the wiring under test.
+// ---------------------------------------------------------------------------
+
+const mockDbClose = vi.fn();
+const mockOpenDatabase = vi
+  .fn<(path: string) => { close: () => void }>()
+  .mockReturnValue({ close: mockDbClose });
+
+vi.mock("@zia/persistence", () => ({
+  openDatabase: mockOpenDatabase,
+  SqliteAuditLog: vi.fn().mockImplementation(() => ({})),
+}));
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -75,6 +91,8 @@ describe("tui.ts MCP adapter lifecycle wiring (T-17)", () => {
     mockDispose.mockClear();
     mockCreateMcpAdapter.mockClear();
     mockRunZiaAgentTui.mockClear();
+    mockDbClose.mockClear();
+    mockOpenDatabase.mockClear();
 
     // Remove SIGTERM/SIGINT listeners added by previous test runs
     process.removeAllListeners("SIGTERM");
