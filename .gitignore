@@ -36,3 +36,8 @@ package-lock.json
 
 # pi.dev local runtime state (per-cwd settings, session data)
 .pi/
+
+# SQLite databases (per-agent runtime state, never committed)
+*.db
+*.db-wal
+*.db-shm
