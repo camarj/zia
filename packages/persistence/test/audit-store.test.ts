@@ -135,6 +135,32 @@ describe("SqliteAuditLog.record() — FTS trigger (SC-06, SPEC-R7)", () => {
     expect(ftsRows.length).toBeGreaterThan(0);
     db.close();
   });
+
+  it("delete trigger removes the row from audit_entries_fts (no stale entries)", async () => {
+    const { openDatabase } = await import("../src/db.ts");
+    const { SqliteAuditLog } = await import("../src/audit-store.ts");
+
+    const db = openDatabase(join(tempDir, "test.db"));
+    const log = new SqliteAuditLog(db);
+
+    await log.record(makeEntry({ toolName: "send_email" }));
+
+    const inserted = db
+      .prepare(`SELECT id FROM audit_entries WHERE tool_name = 'send_email'`)
+      .get() as { id: number };
+    db.prepare(`DELETE FROM audit_entries WHERE id = ?`).run(inserted.id);
+
+    // Direct FTS MATCH (no JOIN) — proves the external-content index was
+    // actually cleaned by the 'delete' sentinel, not just masked by a join.
+    const staleRows = db
+      .prepare(
+        `SELECT rowid FROM audit_entries_fts WHERE audit_entries_fts MATCH '"send_email"'`,
+      )
+      .all() as { rowid: number }[];
+
+    expect(staleRows.length).toBe(0);
+    db.close();
+  });
 });
 
 // -------------------------------------------------------------------------
