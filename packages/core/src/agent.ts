@@ -17,6 +17,7 @@ import {
   ApprovalSerializer,
   JsonlAuditLog,
   PolicyClassifier,
+  type AuditLog,
   type WrappableTool,
   wrapToolsWithApproval,
 } from "@zia/callbacks";
@@ -38,6 +39,13 @@ export interface CreateZiaAgentOptions {
    * regardless of the number of tools.
    */
   rawTools?: WrappableTool[];
+  /**
+   * Optional audit-log backend. Defaults to JsonlAuditLog writing to
+   * <fichaDir>/audit.jsonl. The composition root (apps/agent-runtime) injects
+   * a SqliteAuditLog. Keeping this an interface means @zia/core never depends
+   * on @zia/persistence (a pure TUI/cron agent must not pull native SQLite).
+   */
+  auditLog?: AuditLog;
   /**
    * Optional hook called for every medio/alto tool call before dispatching
    * to the queue. Receives the raw trailing SDK args:
@@ -132,7 +140,7 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
   // Start with null resolver — fail-closed (D7). Entry point must bind a resolver.
   const queue = new ApprovalQueue(null, serializer);
 
-  const auditLog = new JsonlAuditLog(join(opts.fichaDir, "audit.jsonl"));
+  const auditLog = opts.auditLog ?? new JsonlAuditLog(join(opts.fichaDir, "audit.jsonl"));
 
   const rawTools: WrappableTool[] = opts.rawTools ?? [];
 

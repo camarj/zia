@@ -26,6 +26,9 @@ importers:
       '@zia/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@zia/persistence':
+        specifier: workspace:*
+        version: link:../../packages/persistence
       '@zia/providers':
         specifier: workspace:*
         version: link:../../packages/providers

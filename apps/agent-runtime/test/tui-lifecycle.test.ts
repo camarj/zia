@@ -51,6 +51,22 @@ vi.mock("@zia/core", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock @zia/persistence — keep the lifecycle test off the real SQLite file.
+// Without this, openDatabase(join(fichaDir, "zia.db")) would create a real
+// agents/_template/zia.db as a side effect of the wiring under test.
+// ---------------------------------------------------------------------------
+
+const mockDbClose = vi.fn();
+const mockOpenDatabase = vi
+  .fn<(path: string) => { close: () => void }>()
+  .mockReturnValue({ close: mockDbClose });
+
+vi.mock("@zia/persistence", () => ({
+  openDatabase: mockOpenDatabase,
+  SqliteAuditLog: vi.fn().mockImplementation(() => ({})),
+}));
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -75,6 +91,8 @@ describe("tui.ts MCP adapter lifecycle wiring (T-17)", () => {
     mockDispose.mockClear();
     mockCreateMcpAdapter.mockClear();
     mockRunZiaAgentTui.mockClear();
+    mockDbClose.mockClear();
+    mockOpenDatabase.mockClear();
 
     // Remove SIGTERM/SIGINT listeners added by previous test runs
     process.removeAllListeners("SIGTERM");
@@ -104,6 +122,8 @@ describe("tui.ts MCP adapter lifecycle wiring (T-17)", () => {
     const runOpts = mockRunZiaAgentTui.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(runOpts["rawTools"]).toBe(mockTools);
     expect(runOpts["fichaDir"]).toContain("agents/_template");
+    // The SQLite-backed auditLog must be wired into the agent (the wiring this PR adds).
+    expect(runOpts["auditLog"]).toBeDefined();
   });
 
   it("calls handle.dispose() in the finally block after runZiaAgentTui resolves", async () => {
