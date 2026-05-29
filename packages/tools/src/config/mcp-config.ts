@@ -68,8 +68,13 @@ function warn(msg: string): void {
  * - Missing file (ENOENT) → returns [].
  * - Server entry without a `name` field → skipped with a warn log (SC-11, SPEC-YAML-5).
  * - Any other read error is re-thrown.
+ *
+ * @param logger Optional logger for warn messages (injectable for testing).
  */
-export async function readMcpConfig(fichaDir: string): Promise<McpServerConfig[]> {
+export async function readMcpConfig(
+  fichaDir: string,
+  logger: (msg: string) => void = warn,
+): Promise<McpServerConfig[]> {
   const filePath = join(fichaDir, "mcp.yaml");
   let raw: string;
 
@@ -95,7 +100,7 @@ export async function readMcpConfig(fichaDir: string): Promise<McpServerConfig[]
   if (!parsed.success) {
     // Structural violation (e.g. servers: "linear" instead of a list).
     // Warn so operators can diagnose malformed config, then degrade gracefully.
-    warn(`${filePath} has an invalid structure: ${parsed.error.message}`);
+    logger(`${filePath} has an invalid structure: ${parsed.error.message}`);
     return [];
   }
 
@@ -104,7 +109,7 @@ export async function readMcpConfig(fichaDir: string): Promise<McpServerConfig[]
 
   for (const entry of entries) {
     if (!entry.name) {
-      warn(`server entry missing required "name" field; skipping`);
+      logger(`server entry missing required "name" field; skipping`);
       continue;
     }
     configs.push({
@@ -123,10 +128,13 @@ export async function readMcpConfig(fichaDir: string): Promise<McpServerConfig[]
  *
  * Returns `null` when a required `$VAR` is absent from `env` (SPEC-YAML-3, SC-04).
  * The caller should warn+skip the server when this returns null.
+ *
+ * @param logger Optional logger for warn messages (injectable for testing).
  */
 export function resolveSpawn(
   cfg: McpServerConfig,
   env: NodeJS.ProcessEnv,
+  logger: (msg: string) => void = warn,
 ): ResolvedServerSpawn | null {
   // Split command string on spaces (SPEC-YAML-2, SC-09)
   const tokens = cfg.command.split(" ").filter((t) => t.length > 0);
@@ -146,7 +154,7 @@ export function resolveSpawn(
           : inner;
       const expanded = env[varName];
       if (expanded === undefined) {
-        warn(
+        logger(
           `env var $${varName} not set for server "${cfg.name}"; server will be skipped`,
         );
         return null;
