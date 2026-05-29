@@ -13,7 +13,8 @@ import { writeFile, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import type { McpServerClient, McpToolDescriptor } from "../mcp-server.ts";
+import type { McpServerClient, McpToolDescriptor, SdkClientFactory, SdkClientLike, SdkTransportLike } from "../mcp-server.ts";
+import { connectServer } from "../mcp-server.ts";
 import type { McpCallResult } from "../result-mapper.ts";
 import { createMcpAdapter } from "../mcp-adapter.ts";
 
@@ -100,8 +101,8 @@ servers:
     });
   });
 
-  describe("SC-02 — multiple servers with paginated tools", () => {
-    it("loads 12 tools total: 8 from linear (2 pages) + 4 from notion (1 page)", async () => {
+  describe("SC-02a — multi-server tool aggregation", () => {
+    it("loads 12 tools total: 8 from linear + 4 from notion across two servers", async () => {
       await writeMcpYaml(`
 servers:
   - name: linear
@@ -110,67 +111,85 @@ servers:
     command: npx notion
 `);
 
-      // linear: page 1 = 5 tools, page 2 = 3 tools (via pagination)
-      const linearTools1: McpToolDescriptor[] = Array.from({ length: 5 }, (_, i) => ({
+      const linearTools: McpToolDescriptor[] = Array.from({ length: 8 }, (_, i) => ({
         name: `linear_tool_${i + 1}`,
         inputSchema: {},
       }));
-      const linearTools2: McpToolDescriptor[] = Array.from({ length: 3 }, (_, i) => ({
-        name: `linear_tool_${i + 6}`,
-        inputSchema: {},
-      }));
-
-      // notion: 4 tools in 1 page
       const notionTools: McpToolDescriptor[] = Array.from({ length: 4 }, (_, i) => ({
         name: `notion_tool_${i + 1}`,
         inputSchema: {},
       }));
 
-      // We simulate pagination by overriding listTools to use cursor tracking
-      let linearPage = 0;
-      const linearClient: McpServerClient = {
-        name: "linear",
-        listTools: vi.fn(async () => {
-          const result = linearPage === 0 ? linearTools1 : linearTools2;
-          linearPage += 1;
-          return result;
-        }),
-        callTool: vi.fn(),
-        close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
-      };
-
+      const linearClient = makeFakeClient("linear", linearTools);
       const notionClient = makeFakeClient("notion", notionTools);
 
       const connectMock = vi.fn()
         .mockResolvedValueOnce(linearClient)
         .mockResolvedValueOnce(notionClient);
 
-      // For this test, the real pagination loop in mcp-server.ts is not invoked
-      // (we're bypassing connectServer entirely). listTools on the fake client
-      // is called multiple times by the mcp-adapter's own aggregation.
-      // The actual pagination cursor loop is tested in mcp-server.test.ts.
-      // Here we verify that mcp-adapter calls listTools once per server and
-      // collects all returned tools.
-      //
-      // SC-02 per spec: 5 + 3 = 8 from linear, 4 from notion = 12 total.
-      // Since we bypass the real connectServer pagination, we make each call
-      // return the full combined list for that server.
-      const linearAllClient = makeFakeClient("linear", [...linearTools1, ...linearTools2]);
-      const notionAllClient = makeFakeClient("notion", notionTools);
-
-      const connectMock2 = vi.fn()
-        .mockResolvedValueOnce(linearAllClient)
-        .mockResolvedValueOnce(notionAllClient);
-
       const handle = await createMcpAdapter(
         { fichaDir: tmpDir, env: {} },
-        { connectServerFn: connectMock2 },
+        { connectServerFn: connectMock },
       );
 
       expect(handle.tools).toHaveLength(12);
       const toolNames = handle.tools.map((t) => t.name);
       expect(toolNames.filter((n) => n.startsWith("mcp_linear_"))).toHaveLength(8);
       expect(toolNames.filter((n) => n.startsWith("mcp_notion_"))).toHaveLength(4);
+    });
+  });
+
+  describe("SC-02b — multi-page pagination cursor loop (end-to-end via real connectServer)", () => {
+    it("adapter receives all tools across 2 pages when sdkClient.listTools is called twice", async () => {
+      await writeMcpYaml(`
+servers:
+  - name: linear
+    command: npx linear
+`);
+
+      // Build a fake SdkClientFactory whose listTools returns page 1 on the first
+      // call (with nextCursor) and page 2 on the second call (no nextCursor).
+      // This exercises the do/while cursor loop inside mcp-server.ts::buildClient.
+      const page1Tools = Array.from({ length: 3 }, (_, i) => ({ name: `tool_${i + 1}`, inputSchema: {} }));
+      const page2Tools = Array.from({ length: 2 }, (_, i) => ({ name: `tool_${i + 4}`, inputSchema: {} }));
+
+      let callCount = 0;
+      const sdkListTools = vi.fn(async (_params?: { cursor?: string }) => {
+        callCount += 1;
+        if (callCount === 1) {
+          return { tools: page1Tools, nextCursor: "cursor-xyz" };
+        }
+        return { tools: page2Tools, nextCursor: undefined };
+      });
+
+      const fakeTransport: SdkTransportLike = { close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined) };
+      const fakeSdkClient: SdkClientLike = {
+        connect: vi.fn<(t: SdkTransportLike) => Promise<void>>().mockResolvedValue(undefined),
+        listTools: sdkListTools,
+        callTool: vi.fn(),
+        close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      };
+      const fakeSdkFactory: SdkClientFactory = {
+        createTransport: vi.fn(() => fakeTransport),
+        createClient: vi.fn(() => fakeSdkClient),
+      };
+
+      // Use the real connectServer (with injected factory) so the adapter goes
+      // through the full mcp-server.ts pagination loop.
+      const handle = await createMcpAdapter(
+        { fichaDir: tmpDir, env: {} },
+        { connectServerFn: (spawn) => connectServer(spawn, { clientFactory: fakeSdkFactory }) },
+      );
+
+      // sdkClient.listTools must be called exactly twice (one per page).
+      expect(sdkListTools).toHaveBeenCalledTimes(2);
+      // Second call must pass the cursor from page 1.
+      expect(sdkListTools).toHaveBeenLastCalledWith({ cursor: "cursor-xyz" });
+      // Adapter accumulates all 5 tools across both pages.
+      expect(handle.tools).toHaveLength(5);
+      expect(handle.tools.map((t) => t.name)).toEqual(
+        ["mcp_linear_tool_1", "mcp_linear_tool_2", "mcp_linear_tool_3", "mcp_linear_tool_4", "mcp_linear_tool_5"],
+      );
     });
   });
 

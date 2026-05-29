@@ -46,7 +46,7 @@ export interface ServerBootReport {
 export interface McpAdapterHandle {
   /** WrappableTool[] ready to pass to createZiaAgent rawTools. */
   readonly tools: WrappableTool[];
-  /** Per-server boot outcomes for diagnostics. */
+  /** Per-server boot outcomes for diagnostics. Extension beyond SPEC-API-1 — added per design §2. */
   readonly servers: ReadonlyArray<ServerBootReport>;
   /** Close all MCP client connections and subprocesses. Idempotent. */
   dispose(): Promise<void>;
