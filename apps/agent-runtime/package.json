@@ -16,6 +16,7 @@
     "@earendil-works/pi-coding-agent": "^0.76.0",
     "@inquirer/prompts": "^7.2.1",
     "@zia/core": "workspace:*",
+    "@zia/persistence": "workspace:*",
     "@zia/providers": "workspace:*",
     "@zia/tools": "workspace:*",
     "yaml": "^2.6.0"

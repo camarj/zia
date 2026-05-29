@@ -1,7 +1,8 @@
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import process from "node:process";
 
 import { runZiaAgentTui } from "@zia/core";
+import { openDatabase, SqliteAuditLog } from "@zia/persistence";
 import { createMcpAdapter } from "@zia/tools";
 
 async function main(): Promise<void> {
@@ -23,14 +24,21 @@ async function main(): Promise<void> {
   // SPEC-API-3: createMcpAdapter before createZiaAgent; pass handle.tools as rawTools.
   const handle = await createMcpAdapter(fichaDir);
 
-  // SIGTERM / SIGINT: close MCP subprocesses cleanly before exit.
+  // Open one SQLite DB for this agent container. The DB file lives alongside the
+  // ficha so the agent's audit log and session data are co-located with its identity.
+  // This is the ONLY place @zia/persistence is imported — the composition root owns it.
+  // Gateway slice: thread this same `db` handle into SessionStore when wiring gateways.
+  const db = openDatabase(join(fichaDir, "zia.db"));
+  const auditLog = new SqliteAuditLog(db);
+
+  // SIGTERM / SIGINT: close MCP subprocesses and the DB cleanly before exit.
   // Registered once per process — no risk of double-dispose (handle.dispose is idempotent).
   // .catch ensures the process still exits even if dispose() rejects.
   process.once("SIGTERM", () => {
-    void handle.dispose().then(() => process.exit(0)).catch(() => process.exit(1));
+    void handle.dispose().then(() => { db.close(); process.exit(0); }).catch(() => { db.close(); process.exit(1); });
   });
   process.once("SIGINT", () => {
-    void handle.dispose().then(() => process.exit(0)).catch(() => process.exit(1));
+    void handle.dispose().then(() => { db.close(); process.exit(0); }).catch(() => { db.close(); process.exit(1); });
   });
 
   // W-1 fix: track exit code outside the try/catch so dispose() in finally
@@ -38,16 +46,16 @@ async function main(): Promise<void> {
   // hard-stop the process and skip the finally block, orphaning MCP subprocesses.
   let exitCode = 0;
   try {
-    // SPEC-API-3: pass handle.tools as rawTools into the agent.
-    await runZiaAgentTui({ fichaDir, rawTools: handle.tools });
+    // SPEC-API-3: pass handle.tools as rawTools and the SQLite-backed auditLog into the agent.
+    await runZiaAgentTui({ fichaDir, rawTools: handle.tools, auditLog });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`${message}\n`);
     exitCode = 1;
   } finally {
-    // Dispose regardless of success or error (SPEC-LIFE-3 / design §3 teardown).
-    // Runs before process.exit() so MCP subprocesses are never orphaned on crash.
+    // Dispose MCP subprocesses and close the DB (WAL checkpoint) before exit.
     await handle.dispose();
+    db.close();
   }
   process.exit(exitCode);
 }
