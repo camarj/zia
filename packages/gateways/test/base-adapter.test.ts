@@ -16,10 +16,10 @@ import type { MessageEvent, ApprovalView } from "../src/types.ts";
 class TestAdapter extends BaseAdapter {
   readonly platform = "test";
 
-  readonly startSpy = vi.fn<[], Promise<void>>(() => Promise.resolve());
-  readonly stopSpy = vi.fn<[], Promise<void>>(() => Promise.resolve());
-  readonly sendMessageSpy = vi.fn<[string, string], Promise<void>>(() => Promise.resolve());
-  readonly sendApprovalRequestSpy = vi.fn<[ApprovalView], Promise<void>>(() => Promise.resolve());
+  readonly startSpy = vi.fn(() => Promise.resolve());
+  readonly stopSpy = vi.fn(() => Promise.resolve());
+  readonly sendMessageSpy = vi.fn((_chatId: string, _text: string) => Promise.resolve());
+  readonly sendApprovalRequestSpy = vi.fn((_view: ApprovalView) => Promise.resolve());
 
   protected override _start(): Promise<void> {
     return this.startSpy();
