@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import process from "node:process";
 
@@ -18,6 +19,22 @@ async function main(): Promise<void> {
 
   const baseDir = process.env.INIT_CWD ?? process.cwd();
   const fichaDir = resolve(baseDir, fichaArg);
+
+  // Load the ficha's own .env (written by `zia model`) BEFORE resolving the
+  // model + credential, so a saved API key is available without re-exporting
+  // it every run. This closes the loop: `zia model` persists the credential to
+  // <fichaDir>/.env, and this is where the runtime reads it back.
+  //
+  // Precedence (matches Hermes provider-runtime §7 — explicit beats saved):
+  // process.loadEnvFile never overrides a var already present in the shell, so
+  // an explicit `export ANTHROPIC_API_KEY=...` still wins over the ficha .env.
+  //
+  // Skipped silently when the ficha has no .env — OAuth providers persist to
+  // auth.json (loaded by AuthStorage.create()) and custom endpoints need no key.
+  const fichaEnvPath = join(fichaDir, ".env");
+  if (existsSync(fichaEnvPath)) {
+    process.loadEnvFile(fichaEnvPath);
+  }
 
   // Boot the MCP adapter — spawns all MCP servers declared in mcp.yaml and
   // produces WrappableTools to feed into the agent's rawTools slot.

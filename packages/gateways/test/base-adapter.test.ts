@@ -5,6 +5,8 @@
  * final lifecycle methods. Tests real observable behaviour — spy call counts
  * on _start/_stop, and message forwarding via _attach + emit.
  */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect, vi } from "vitest";
 import { BaseAdapter } from "../src/base-adapter.ts";
 import type { MessageEvent, ApprovalView } from "../src/types.ts";
@@ -110,14 +112,19 @@ describe("BaseAdapter lifecycle (SC-01..SC-05)", () => {
     expect(() => adapter.testEmit(makeEvent())).toThrow(/not.*registered|runner\.register/i);
   });
 
-  it("SPEC-R2: BaseAdapter does not import @zia/core or pi.dev SDK", async () => {
-    // Verify by importing the module and checking it resolves cleanly.
-    // The real guard is the import itself succeeding in a context where
-    // @earendil-works/pi-coding-agent is NOT listed as a direct dependency
-    // of @zia/gateways (package.json). TypeScript would catch the import
-    // at typecheck time; this test validates the module loads without
-    // pulling in SDK types at runtime.
-    const mod = await import("../src/base-adapter.ts");
-    expect(typeof mod.BaseAdapter).toBe("function");
+  it("SPEC-R2: adapter source files do not import @zia/core or the pi.dev SDK", () => {
+    // Source-level guard: a type-only `import ... from "@zia/core"` is erased at
+    // runtime and would slip past a module-load check, so we grep the actual
+    // source text. (The repo-wide dep-direction guard in PR C extends this.)
+    // Match the quoted module specifier (real imports only) — prose comments
+    // that mention @zia/core without quotes must not trip the guard.
+    const forbidden = [/["']@zia\/core["']/, /["']@earendil-works\//];
+    const sources = ["../src/base-adapter.ts", "../src/adapters/null-adapter.ts"];
+    for (const rel of sources) {
+      const src = readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8");
+      for (const pattern of forbidden) {
+        expect(src, `${rel} must not import ${pattern}`).not.toMatch(pattern);
+      }
+    }
   });
 });

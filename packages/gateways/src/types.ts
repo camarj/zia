@@ -2,8 +2,11 @@
  * types.ts — Core gateway types (spec §2.1, design §1).
  *
  * All types are channel-agnostic. No platform-specific imports allowed.
- * SPEC-R2: nothing here imports @zia/core or the pi.dev SDK.
+ * SPEC-R2: nothing here imports @zia/core or the pi.dev SDK. The RiskLevel
+ * type below is a type-only import from @zia/callbacks (the canonical source),
+ * which is permitted — SPEC-R2 only bans @zia/core and the pi.dev SDK.
  */
+import type { RiskLevel } from "@zia/callbacks";
 
 // ---------------------------------------------------------------------------
 // Primitive type aliases
@@ -79,7 +82,8 @@ export interface ApprovalView {
   /** toolCallId — opaque to the channel; used for /approve <id> routing. */
   readonly id: string;
   readonly toolName: string;
-  readonly riskLevel: string;
+  /** Canonical risk classification — single source of truth in @zia/callbacks. */
+  readonly riskLevel: RiskLevel;
   /** Pre-rendered human-readable summary. No raw params object exposed. */
   readonly summary: string;
 }
