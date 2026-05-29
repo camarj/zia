@@ -57,7 +57,6 @@ function simulatePiAiValidation(
   const clonedArgs = structuredClone(args);
   Value.Convert(schema as never, clonedArgs);
 
-  const usedJsonSchemaPath = !hasTypeBoxMetadata(schema);
   const validator = Compile(schema as never);
   const passed = validator.Check(clonedArgs);
 
