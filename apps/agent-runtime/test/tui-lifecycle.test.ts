@@ -17,6 +17,10 @@
  * We reset module registries between tests to avoid state bleed.
  */
 
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // ---------------------------------------------------------------------------
@@ -157,6 +161,40 @@ describe("tui.ts MCP adapter lifecycle wiring (T-17)", () => {
     // CRITICAL: dispose must come before exit — proving MCP subprocesses are
     // not orphaned when the agent crashes (W-1 fix verification).
     expect(callOrder).toEqual(["dispose", "exit"]);
+  });
+
+  it("loads the ficha's .env into process.env at boot so a saved credential is available", async () => {
+    // The ficha .env is the persistence target of `zia model`. The runtime must
+    // read it back at boot — otherwise a saved API key is never seen and the
+    // user is forced to re-export it every run (the bug this fix closes).
+    const fichaDir = await mkdtemp(join(tmpdir(), "zia-ficha-"));
+    const fromFileVar = "ZIA_TEST_CRED_FROM_FILE";
+    const shellWinsVar = "ZIA_TEST_CRED_SHELL_WINS";
+    await writeFile(
+      join(fichaDir, ".env"),
+      `${fromFileVar}=loaded_from_ficha_env\n${shellWinsVar}=file_value\n`,
+    );
+
+    // Pre-set one var in the "shell" — it MUST win over the file value
+    // (Hermes precedence: explicit env beats saved ficha .env).
+    process.env[shellWinsVar] = "shell_value";
+    delete process.env[fromFileVar];
+
+    // Absolute path → resolve() returns it verbatim, independent of cwd.
+    process.argv = ["node", "tui.ts", fichaDir];
+
+    try {
+      await import("../src/tui.ts");
+
+      // Var absent from the shell → filled in from the ficha .env.
+      expect(process.env[fromFileVar]).toBe("loaded_from_ficha_env");
+      // Var already in the shell → shell value preserved, file did NOT override.
+      expect(process.env[shellWinsVar]).toBe("shell_value");
+    } finally {
+      delete process.env[fromFileVar];
+      delete process.env[shellWinsVar];
+      await rm(fichaDir, { recursive: true, force: true });
+    }
   });
 
   it("missing fichaDir arg prints usage and exits 1 without calling createMcpAdapter", async () => {

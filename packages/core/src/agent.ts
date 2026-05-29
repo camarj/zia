@@ -59,6 +59,29 @@ export interface CreateZiaAgentOptions {
    * resolver.bindUi(ctx.ui) on the first gated call.
    */
   onGatedCtx?: (rest: readonly unknown[]) => void;
+  /**
+   * Optional SessionManager override (ADR-1, gateway-core).
+   *
+   * When provided, this instance is passed directly to createAgentSessionRuntime
+   * instead of the default SessionManager.create(cwd). GatewayRunner uses this
+   * to give each session key its own pi.dev JSONL file, enabling concurrent
+   * multi-session operation without tearing down a shared runtime.
+   *
+   * When absent, createZiaAgent defaults to SessionManager.create(cwd) — the
+   * existing behaviour for TUI and cron callers is completely unchanged.
+   *
+   * @zia/core gains NO gateway or persistence concepts from this field.
+   * SessionManager is already imported from the pi.dev SDK.
+   */
+  sessionManager?: SessionManager;
+  /**
+   * Optional working directory override (ADR-1, gateway-core).
+   *
+   * Defaults to process.cwd(). Exposed so callers (e.g. GatewayRunner) can
+   * vary the cwd per session without changing the global process cwd.
+   * TUI and cron callers that omit this field see no behaviour change.
+   */
+  cwd?: string;
 }
 
 export interface ZiaAgentHandle {
@@ -151,7 +174,7 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
     onGatedCtx: opts.onGatedCtx,
   });
 
-  const cwd = process.cwd();
+  const cwd = opts.cwd ?? process.cwd();
   const agentDir = getAgentDir();
 
   const createRuntime: CreateAgentSessionRuntimeFactory = async ({
@@ -206,7 +229,7 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
   const runtime = await createAgentSessionRuntime(createRuntime, {
     cwd,
     agentDir,
-    sessionManager: SessionManager.create(cwd),
+    sessionManager: opts.sessionManager ?? SessionManager.create(cwd),
   });
 
   return { runtime, queue };

@@ -101,6 +101,31 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.19)
 
+  packages/gateways:
+    dependencies:
+      '@zia/callbacks':
+        specifier: workspace:*
+        version: link:../callbacks
+      '@zia/core':
+        specifier: workspace:*
+        version: link:../core
+      '@zia/persistence':
+        specifier: workspace:*
+        version: link:../persistence
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.19
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.3
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.19)
+
   packages/persistence:
     dependencies:
       better-sqlite3:
