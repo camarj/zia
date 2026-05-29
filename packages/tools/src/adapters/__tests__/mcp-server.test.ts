@@ -198,7 +198,7 @@ describe("connectServer", () => {
         name: "create_issue",
         arguments: { title: "My Issue" },
       });
-      expect(result.content[0]).toMatchObject({ type: "text", text: "created" });
+      expect(result.content?.[0]).toMatchObject({ type: "text", text: "created" });
     });
 
     it("passes isError:true from the MCP response through unchanged", async () => {
@@ -212,7 +212,7 @@ describe("connectServer", () => {
       const client = await connectServer(makeSpawn(), { clientFactory: factory });
       const result = await client.callTool("create_issue", {});
       expect(result.isError).toBe(true);
-      expect(result.content[0]?.text).toBe("API error");
+      expect(result.content?.[0]?.text).toBe("API error");
     });
   });
 

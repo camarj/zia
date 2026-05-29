@@ -1,3 +1,6 @@
-// PR-1 exports: config types and adapter infrastructure (schema-bridge, result-mapper).
-// createMcpAdapter and McpAdapterHandle will be added in PR-2 (WU-7/8).
+// Public API for @zia/tools.
+// PR-1: config types.
+// PR-2: createMcpAdapter + McpAdapterHandle (WU-8).
 export type { McpServerConfig, ResolvedServerSpawn } from "./config/mcp-config.js";
+export { createMcpAdapter } from "./adapters/mcp-adapter.js";
+export type { McpAdapterHandle, CreateMcpAdapterOptions, ServerBootReport } from "./adapters/mcp-adapter.js";
