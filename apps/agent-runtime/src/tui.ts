@@ -24,21 +24,21 @@ async function main(): Promise<void> {
   // SPEC-API-3: createMcpAdapter before createZiaAgent; pass handle.tools as rawTools.
   const handle = await createMcpAdapter(fichaDir);
 
-  // Open one SQLite DB for this agent container. The DB file lives alongside the
-  // ficha so the agent's audit log and session data are co-located with its identity.
-  // This is the ONLY place @zia/persistence is imported — the composition root owns it.
+  // The DB handle is opened INSIDE the try block below so that any failure
+  // (read-only volume, WAL pragma failure, schema-version mismatch) still runs
+  // the finally block and disposes the already-spawned MCP subprocesses (W-1).
   // Gateway slice: thread this same `db` handle into SessionStore when wiring gateways.
-  const db = openDatabase(join(fichaDir, "zia.db"));
-  const auditLog = new SqliteAuditLog(db);
+  let db: ReturnType<typeof openDatabase> | undefined;
 
   // SIGTERM / SIGINT: close MCP subprocesses and the DB cleanly before exit.
+  // Registered BEFORE openDatabase so a signal during startup is still handled.
   // Registered once per process — no risk of double-dispose (handle.dispose is idempotent).
   // .catch ensures the process still exits even if dispose() rejects.
   process.once("SIGTERM", () => {
-    void handle.dispose().then(() => { db.close(); process.exit(0); }).catch(() => { db.close(); process.exit(1); });
+    void handle.dispose().then(() => { db?.close(); process.exit(0); }).catch(() => { db?.close(); process.exit(1); });
   });
   process.once("SIGINT", () => {
-    void handle.dispose().then(() => { db.close(); process.exit(0); }).catch(() => { db.close(); process.exit(1); });
+    void handle.dispose().then(() => { db?.close(); process.exit(0); }).catch(() => { db?.close(); process.exit(1); });
   });
 
   // W-1 fix: track exit code outside the try/catch so dispose() in finally
@@ -46,6 +46,10 @@ async function main(): Promise<void> {
   // hard-stop the process and skip the finally block, orphaning MCP subprocesses.
   let exitCode = 0;
   try {
+    // Open one SQLite DB for this agent container, co-located with the ficha.
+    // This is the ONLY place @zia/persistence is imported — the composition root owns it.
+    db = openDatabase(join(fichaDir, "zia.db"));
+    const auditLog = new SqliteAuditLog(db);
     // SPEC-API-3: pass handle.tools as rawTools and the SQLite-backed auditLog into the agent.
     await runZiaAgentTui({ fichaDir, rawTools: handle.tools, auditLog });
   } catch (error) {
@@ -54,8 +58,9 @@ async function main(): Promise<void> {
     exitCode = 1;
   } finally {
     // Dispose MCP subprocesses and close the DB (WAL checkpoint) before exit.
+    // db may be undefined if openDatabase threw — dispose the handle regardless.
     await handle.dispose();
-    db.close();
+    db?.close();
   }
   process.exit(exitCode);
 }

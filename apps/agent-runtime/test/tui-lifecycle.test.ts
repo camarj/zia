@@ -122,6 +122,8 @@ describe("tui.ts MCP adapter lifecycle wiring (T-17)", () => {
     const runOpts = mockRunZiaAgentTui.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(runOpts["rawTools"]).toBe(mockTools);
     expect(runOpts["fichaDir"]).toContain("agents/_template");
+    // The SQLite-backed auditLog must be wired into the agent (the wiring this PR adds).
+    expect(runOpts["auditLog"]).toBeDefined();
   });
 
   it("calls handle.dispose() in the finally block after runZiaAgentTui resolves", async () => {
