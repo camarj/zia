@@ -29,15 +29,16 @@ describe("ToolResultContent", () => {
 // ---------------------------------------------------------------------------
 
 describe("ToolResult", () => {
-  it("TY-2: minimal ToolResult has content array", () => {
+  it("TY-2: minimal ToolResult has content array and details", () => {
     const result: ToolResult = {
       content: [{ type: "text", text: "ok" }],
+      details: {},
     };
     expect(result.content).toHaveLength(1);
     expect(result.content[0]?.type).toBe("text");
   });
 
-  it("TY-3: ToolResult accepts optional details", () => {
+  it("TY-3: ToolResult details carries structured data", () => {
     const result: ToolResult = {
       content: [{ type: "text", text: "ok" }],
       details: { id: "abc" },
@@ -54,9 +55,11 @@ describe("WrappableTool", () => {
   it("TY-4: a plain object satisfies WrappableTool", () => {
     const tool: WrappableTool = {
       name: "my_tool",
+      label: "My Tool",
       parameters: {},
       execute: async (_toolCallId, _params) => ({
         content: [{ type: "text", text: "done" }],
+        details: {},
       }),
     };
     expect(tool.name).toBe("my_tool");
@@ -66,6 +69,7 @@ describe("WrappableTool", () => {
   it("TY-5: WrappableTool execute returns a ToolResult-shaped promise", async () => {
     const tool: WrappableTool = {
       name: "echo_tool",
+      label: "Echo Tool",
       parameters: {},
       execute: async (toolCallId, params) => ({
         content: [{ type: "text", text: `called with ${toolCallId}` }],
@@ -76,13 +80,13 @@ describe("WrappableTool", () => {
     expect(result.content[0]?.text).toBe("called with call-1");
   });
 
-  it("TY-6: WrappableTool with optional label and description", () => {
+  it("TY-6: WrappableTool carries label and description", () => {
     const tool: WrappableTool = {
       name: "labeled_tool",
       label: "Labeled Tool",
       description: "Does something",
       parameters: {},
-      execute: async () => ({ content: [{ type: "text", text: "" }] }),
+      execute: async () => ({ content: [{ type: "text", text: "" }], details: {} }),
     };
     expect(tool.label).toBe("Labeled Tool");
     expect(tool.description).toBe("Does something");

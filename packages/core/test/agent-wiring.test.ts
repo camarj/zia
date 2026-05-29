@@ -19,24 +19,95 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  AlwaysApproveResolver,
-  AlwaysRejectResolver,
-} from "../../callbacks/src/__fixtures__/resolvers.fixture.js";
-import {
-  makeMockExternalPostTool,
-  makeMockTrivialReadTool,
-  POLICIES_FIXTURE,
-} from "../../callbacks/src/__fixtures__/mock-tools.fixture.js";
-import {
   ApprovalQueue,
   ApprovalSerializer,
   PolicyClassifier,
   TuiApprovalResolver,
+  type ApprovalRequest,
   type ApprovalResolver,
   type AuditEntry,
   type AuditLog,
+  type Decision,
+  type ToolResult,
+  type WrappableTool,
   wrapToolsWithApproval,
 } from "@zia/callbacks";
+
+// ---------------------------------------------------------------------------
+// Local test fixtures — defined here rather than imported from @zia/callbacks's
+// internal __fixtures__ via a relative cross-package path. A relative import
+// into ../../callbacks/src pulls that package's sources into @zia/core's
+// program and violates core's rootDir (TS6059). The gate's own behavior is
+// covered by the @zia/callbacks package tests; here we only need minimal
+// stand-ins to exercise the wiring path through the public @zia/callbacks API.
+// ---------------------------------------------------------------------------
+
+const POLICIES_FIXTURE = `# Agent Policies
+
+## Trivial
+Auto-execute without approval.
+
+Tools: mock_trivial_read
+
+## Alto
+High-risk actions — require explicit approval.
+
+Tools: mock_external_post
+`;
+
+const AlwaysApproveResolver: ApprovalResolver = {
+  resolve(_req: ApprovalRequest): Promise<Decision> {
+    return Promise.resolve({ approved: true, approver: "test-admin" });
+  },
+};
+
+const AlwaysRejectResolver: ApprovalResolver = {
+  resolve(_req: ApprovalRequest): Promise<Decision> {
+    return Promise.resolve({ approved: false, approver: "test-admin" });
+  },
+};
+
+function makeMockTrivialReadTool(store: string[]): WrappableTool {
+  return {
+    name: "mock_trivial_read",
+    label: "Mock Trivial Read",
+    description: "Trivial read — classified trivial in POLICIES_FIXTURE.",
+    parameters: {},
+    async execute(
+      toolCallId: string,
+      params: Record<string, unknown>,
+      ...rest: unknown[]
+    ): Promise<ToolResult> {
+      void rest;
+      store.push(`read:${toolCallId}`);
+      return {
+        content: [{ type: "text", text: `Read result for ${String(params.query ?? "?")}` }],
+        details: {},
+      };
+    },
+  };
+}
+
+function makeMockExternalPostTool(store: string[]): WrappableTool {
+  return {
+    name: "mock_external_post",
+    label: "Mock External Post",
+    description: "Alto external action — classified alto in POLICIES_FIXTURE.",
+    parameters: {},
+    async execute(
+      toolCallId: string,
+      params: Record<string, unknown>,
+      ...rest: unknown[]
+    ): Promise<ToolResult> {
+      void rest;
+      store.push(`post:${toolCallId}`);
+      return {
+        content: [{ type: "text", text: `Posted: ${String(params.message ?? "?")}` }],
+        details: {},
+      };
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // In-memory audit stub
@@ -127,7 +198,6 @@ describe("agent wiring — gate is always applied (AQ-12)", () => {
     const serializer = new ApprovalSerializer();
     const queue = new ApprovalQueue(AlwaysApproveResolver, serializer);
     const auditLog = new MemAuditLog();
-    createdDirs.push(fichaDir); // already pushed by makeFixture
 
     const raw = [makeMockExternalPostTool(store)];
     const gated = wrapToolsWithApproval(raw, { classifier, queue, auditLog });

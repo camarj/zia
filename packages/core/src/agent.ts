@@ -10,7 +10,6 @@ import {
   SessionManager,
   type AgentSessionRuntime,
   type CreateAgentSessionRuntimeFactory,
-  type ExtensionContext,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -18,7 +17,6 @@ import {
   ApprovalSerializer,
   JsonlAuditLog,
   PolicyClassifier,
-  TuiApprovalResolver,
   type WrappableTool,
   wrapToolsWithApproval,
 } from "@zia/callbacks";
@@ -40,23 +38,35 @@ export interface CreateZiaAgentOptions {
    * regardless of the number of tools.
    */
   rawTools?: WrappableTool[];
+  /**
+   * Optional hook called for every medio/alto tool call before dispatching
+   * to the queue. Receives the raw trailing SDK args:
+   *   rest[0] = signal (AbortSignal | undefined)
+   *   rest[1] = onUpdate (AgentToolUpdateCallback | undefined)
+   *   rest[2] = ctx (ExtensionContext)
+   *
+   * M2 / D8 — channel-agnostic design: the entry point (tui-runner.ts,
+   * rpc-runner.ts) provides this hook to bind a resolver at runtime without
+   * coupling agent.ts to any channel. The TUI entry point uses it to call
+   * resolver.bindUi(ctx.ui) on the first gated call.
+   */
+  onGatedCtx?: (rest: readonly unknown[]) => void;
 }
 
 export interface ZiaAgentHandle {
   runtime: AgentSessionRuntime;
   /**
    * The live approval queue for this agent.
-   * Exposed so entry points (tui-runner.ts, rpc-runner.ts) can swap resolvers
+   *
+   * Exposed so entry points (tui-runner.ts, rpc-runner.ts) can bind a resolver
    * or check pending approvals without requiring a new createZiaAgent call.
+   *
+   * M2 / D7 / D8: the queue starts with null resolver (fail-closed — loud error,
+   * not silent noOp). The entry point MUST call queue.setResolver() to bind a
+   * concrete resolver before gated tool calls can be approved. Until bound, every
+   * gated call returns a clear "No approval channel attached" error result.
    */
   queue: ApprovalQueue;
-  /**
-   * The TUI-specific resolver bound to the queue.
-   * tui-runner.ts calls resolver.bindUi(ctx.ui) via the onGatedCtx hook
-   * on the first medio/alto tool call — not at startup — because ctx.ui is
-   * only available inside InteractiveMode's tool dispatch (D8, SPIKE AMB-1).
-   */
-  tuiResolver: TuiApprovalResolver;
 }
 
 const DEFAULT_THINKING_LEVEL: ThinkingLevel = "medium";
@@ -103,47 +113,34 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
   // No raw tool array is ever assigned directly to customTools — that would
   // bypass the gate (AQ-12 structural requirement, design D1).
   //
+  // M2 / D8 — channel-agnostic: createZiaAgent does NOT instantiate or bind any
+  // concrete resolver. The queue starts with null (fail-closed, D7). The entry
+  // point (tui-runner.ts, rpc-runner.ts) calls queue.setResolver() with the
+  // appropriate resolver for its channel. Until bound, every gated call returns
+  // a loud "No approval channel attached" error result — it never silently
+  // auto-approves.
+  //
   // Wiring sequence:
   //   1. Build PolicyClassifier from POLICIES.md in fichaDir.
   //   2. Build ApprovalSerializer (concurrency mutex).
-  //   3. Build ApprovalQueue with null resolver → fail-closed (D7) until bound.
-  //   4. Build TuiApprovalResolver (queue-only, no ui yet — D8, SPIKE AMB-1).
-  //      ctx.ui is only available inside InteractiveMode tool dispatch; the
-  //      resolver binds it lazily via bindUi() called from the onGatedCtx hook.
-  //   5. Immediately bind the TUI resolver onto the queue so gated calls route
-  //      to it (not to the null-resolver fail-closed path).
-  //   6. Build JsonlAuditLog writing to <fichaDir>/audit.jsonl.
-  //   7. Wrap rawTools with wrapToolsWithApproval + the onGatedCtx hook.
+  //   3. Build ApprovalQueue with null resolver → fail-closed (D7).
+  //   4. Build JsonlAuditLog writing to <fichaDir>/audit.jsonl.
+  //   5. Wrap rawTools with wrapToolsWithApproval + the caller-supplied onGatedCtx.
   // ---------------------------------------------------------------------------
   const classifier = await PolicyClassifier.fromFichaDir(opts.fichaDir);
   const serializer = new ApprovalSerializer();
-  // Start with null resolver so no approval can sneak through before binding (D7).
+  // Start with null resolver — fail-closed (D7). Entry point must bind a resolver.
   const queue = new ApprovalQueue(null, serializer);
-  // TUI resolver: queue is bound now; ui binding happens lazily on first gated call.
-  const tuiResolver = new TuiApprovalResolver({ queue });
-  // Now bind the resolver — gated calls will route to tuiResolver.resolve().
-  queue.setResolver(tuiResolver);
 
   const auditLog = new JsonlAuditLog(join(opts.fichaDir, "audit.jsonl"));
 
   const rawTools: WrappableTool[] = opts.rawTools ?? [];
 
-  // Hook: when a gated tool call arrives, extract ctx.ui from rest[2] (the
-  // ExtensionContext arg in pi.dev's execute signature) and bind it to the
-  // tuiResolver so the TUI confirm dialog becomes available (D8, SPIKE AMB-1).
-  // rest layout per SDK: rest[0]=signal, rest[1]=onUpdate, rest[2]=ctx.
-  const onGatedCtx = (rest: readonly unknown[]): void => {
-    const ctx = rest[2];
-    if (ctx !== null && typeof ctx === "object" && "ui" in ctx) {
-      tuiResolver.bindUi((ctx as ExtensionContext).ui);
-    }
-  };
-
   const gatedTools = wrapToolsWithApproval(rawTools, {
     classifier,
     queue,
     auditLog,
-    onGatedCtx,
+    onGatedCtx: opts.onGatedCtx,
   });
 
   const cwd = process.cwd();
@@ -184,10 +181,13 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
         // AQ-12: customTools receives ONLY the gate-wrapped array.
         // The raw tool array (rawTools) is NEVER assigned here directly.
         //
-        // Cast: WrappableTool is a minimal structural subset of ToolDefinition
-        // (label is optional in WrappableTool, required in ToolDefinition).
-        // The cast is safe at runtime — pi.dev only reads the fields that
-        // WrappableTool provides; label falls back to name when undefined.
+        // Cast: WrappableTool is a minimal structural subset of ToolDefinition.
+        // label and details are now required on both sides (M1 fix), so the
+        // structural gap is narrowed to: ToolDefinition uses typed generics
+        // (TParams, TDetails) while WrappableTool uses unknown/Record<string,unknown>.
+        // The cast is safe at runtime — pi.dev reads exactly the fields WrappableTool
+        // provides. A full assignability cast is not possible without importing the
+        // SDK's TSchema into the gate core (which would break SDK-free testability).
         customTools: gatedTools as unknown as ToolDefinition[],
       })),
       services,
@@ -201,5 +201,5 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
     sessionManager: SessionManager.create(cwd),
   });
 
-  return { runtime, queue, tuiResolver };
+  return { runtime, queue };
 }

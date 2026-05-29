@@ -14,6 +14,7 @@
 
 import type { PolicyClassifier } from "./approval.js";
 import type { AuditEntry, AuditLog } from "./audit-log.js";
+import type { Decision } from "./queue.js";
 import type { ApprovalQueue } from "./queue.js";
 import type { ToolResult, WrappableTool } from "./types.js";
 
@@ -24,9 +25,15 @@ import type { ToolResult, WrappableTool } from "./types.js";
 export interface ToolGateDeps {
   /** Classifies tool names by risk level from POLICIES.md */
   classifier: PolicyClassifier;
-  /** Queues medio/alto decisions through the resolver.
-   *  The queue owns the serializer internally — requestApproval() is already
-   *  serialized, so the gate does NOT wrap it again.
+  /**
+   * Queues medio/alto decisions through the resolver.
+   *
+   * N3 — Design deviation note: the original design §ToolGateDeps listed a
+   * separate `serializer: ApprovalSerializer` field here. During apply, the
+   * serializer was consolidated INTO ApprovalQueue (passed at construction time)
+   * so the gate never needs to see it directly. requestApproval() is already
+   * serialized inside the queue, so the gate calls it directly — no double-wrap.
+   * ToolGateDeps is simpler as a result.
    */
   queue: ApprovalQueue;
   /** Audit backend — one record per call outcome (AQ-9, AQ-11) */
@@ -70,6 +77,7 @@ function rejectionResult(toolName: string): ToolResult {
         text: `Action "${toolName}" was rejected by the human approver.`,
       },
     ],
+    // details is required by AgentToolResult<T> (pi-agent-core/dist/types.d.ts).
     details: { rejected: true },
   };
 }
@@ -79,6 +87,7 @@ function errorResult(toolName: string, err: unknown): ToolResult {
   const message = err instanceof Error ? err.message : String(err);
   return {
     content: [{ type: "text", text: `Tool "${toolName}" failed: ${message}` }],
+    // details is required by AgentToolResult<T> (pi-agent-core/dist/types.d.ts).
     details: { error: message },
   };
 }
@@ -161,7 +170,7 @@ export function wrapToolsWithApproval<T extends WrappableTool>(
       // Wrap requestApproval so a queue failure (e.g. no resolver bound → D7
       // fail-closed error) is treated as a denial rather than an uncaught throw.
       // The gate is a total function (AQ-13): it never propagates to pi.dev.
-      let decision: import("./queue.js").Decision;
+      let decision: Decision;
       try {
         decision = await queue.requestApproval({
           toolCallId,

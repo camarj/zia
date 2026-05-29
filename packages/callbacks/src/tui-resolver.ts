@@ -50,8 +50,9 @@ export interface TuiApprovalResolverDeps {
    * The pi.dev TUI UI context.
    * Obtained from ExtensionContext.ui inside a tool execute call (the only
    * point where ctx.ui is available). Bound lazily via bindUi().
+   * Optional at construction time — bind via bindUi() on first gated call (D8).
    */
-  ui: ExtensionUIContext;
+  ui?: ExtensionUIContext;
   /** Used to render pending items in the widget. */
   queue: ApprovalQueue;
 }
@@ -72,7 +73,7 @@ export class TuiApprovalResolver implements ApprovalResolver {
   private ui: ExtensionUIContext | null = null;
   private readonly queue: ApprovalQueue;
 
-  constructor(deps: Partial<TuiApprovalResolverDeps> & Pick<TuiApprovalResolverDeps, "queue">) {
+  constructor(deps: TuiApprovalResolverDeps) {
     this.queue = deps.queue;
     if (deps.ui) {
       this.ui = deps.ui;
@@ -133,6 +134,9 @@ export class TuiApprovalResolver implements ApprovalResolver {
       this._refreshWidget(ui);
     }
 
+    // N1 — approver identity: "tui" per design §tui-resolver.ts ("approver: 'tui'").
+    // The spec draft used "tui-admin"; the design is authoritative per the spec's
+    // own supersedes clause (AuditEntry schema authority: design §audit-log.ts).
     return { approved, approver: "tui" };
   }
 

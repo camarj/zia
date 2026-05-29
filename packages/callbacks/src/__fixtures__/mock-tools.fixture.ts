@@ -54,6 +54,7 @@ export function makeMockTrivialReadTool(store: string[]): WrappableTool {
       store.push(`read:${toolCallId}`);
       return {
         content: [{ type: "text", text: `Read result for ${String(params.query ?? "?")}` }],
+        details: {},
       };
     },
   };
@@ -82,6 +83,7 @@ export function makeMockExternalPostTool(store: string[]): WrappableTool {
       store.push(`post:${toolCallId}`);
       return {
         content: [{ type: "text", text: `Posted: ${String(params.message ?? "?")}` }],
+        details: {},
       };
     },
   };

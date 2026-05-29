@@ -228,7 +228,7 @@ describe("Scenario 5 — unlisted tool defaults to alto", () => {
       description: "Not listed in policies",
       parameters: {},
       async execute() {
-        return { content: [{ type: "text", text: "executed" }] };
+        return { content: [{ type: "text", text: "executed" }], details: {} };
       },
     };
     const wrapped = first(wrapToolsWithApproval([unlisted], deps));
