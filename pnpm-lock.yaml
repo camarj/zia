@@ -48,6 +48,9 @@ importers:
 
   packages/callbacks:
     devDependencies:
+      '@earendil-works/pi-coding-agent':
+        specifier: ^0.76.0
+        version: 0.76.0(ws@8.21.0)(zod@3.25.76)
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.19
@@ -69,6 +72,9 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: ^0.76.0
         version: 0.76.0(ws@8.21.0)(zod@3.25.76)
+      '@zia/callbacks':
+        specifier: workspace:*
+        version: link:../callbacks
       '@zia/providers':
         specifier: workspace:*
         version: link:../providers

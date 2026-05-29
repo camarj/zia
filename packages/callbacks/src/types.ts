@@ -18,7 +18,14 @@ export interface ToolResultContent {
 
 export interface ToolResult {
   readonly content: readonly ToolResultContent[];
-  readonly details?: Record<string, unknown>;
+  /**
+   * Structured details required by AgentToolResult<T> in pi-agent-core.
+   * Must always be present. Use {} for results that carry no extra detail.
+   *
+   * SDK reference: @earendil-works/pi-agent-core/dist/types.d.ts
+   *   AgentToolResult<T> { details: T; }  — required, not optional.
+   */
+  readonly details: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -31,7 +38,12 @@ export interface ToolResult {
 
 export interface WrappableTool {
   readonly name: string;
-  readonly label?: string;
+  /**
+   * Required to match ToolDefinition.label (string, not optional) in the SDK.
+   * SDK reference: @earendil-works/pi-coding-agent/dist/core/extensions/types.d.ts
+   *   ToolDefinition { label: string; }  — required field.
+   */
+  readonly label: string;
   readonly description?: string;
   readonly parameters: unknown;
   execute(
