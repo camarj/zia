@@ -43,9 +43,9 @@ export function mapResult(r: McpCallResult): ToolResult {
   try {
     const contentItems = r.content ?? [];
 
-    // isError:true branch must come BEFORE mapping content items — W-2.
-    // `mapped` is only needed on the success path; computing it unconditionally
-    // in the error branch is dead work and makes control flow harder to read.
+    // Check the error branch before computing `mapped` to avoid dead work on the
+    // error path. `mapped` is only needed on the success path; computing it
+    // unconditionally before this check would be wasted work.
     if (r.isError === true) {
       return {
         content: [
