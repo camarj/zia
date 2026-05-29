@@ -20,8 +20,21 @@ import type { ApprovalSerializer } from "./serializer.js";
 // Public types
 // ---------------------------------------------------------------------------
 
-/** true = approved, false = rejected */
-export type Decision = boolean;
+/**
+ * Decision returned by ApprovalResolver.resolve() and propagated through
+ * ApprovalQueue.requestApproval().
+ *
+ * Carrying the approver identity is required so the audit record (AQ-9) can
+ * record WHO approved without the gate needing to know which resolver is bound
+ * (D2 — resolver stays swappable). The fail-closed sentinel uses a
+ * self-describing approver string so PR2's gate can audit the denial cleanly.
+ */
+export type Decision = {
+  /** true = approved, false = rejected */
+  approved: boolean;
+  /** Identity of the decision-maker (e.g. "tui", "rpc:admin", "system:fail-closed") */
+  approver: string;
+};
 
 export interface ApprovalRequest {
   readonly toolCallId: string;
@@ -33,6 +46,11 @@ export interface ApprovalRequest {
 /**
  * THE RESOLVER SEAM — implement this interface to provide a decision source.
  * A plain object satisfies it (no class required).
+ *
+ * resolve() returns a Decision carrying both the approval outcome AND the
+ * approver identity. The identity is required by AQ-9 so the audit record
+ * knows WHO decided — the queue and gate are agnostic to which resolver is
+ * bound (D2: resolver stays swappable without touching queue/gate code).
  */
 export interface ApprovalResolver {
   resolve(req: ApprovalRequest): Promise<Decision>;
@@ -72,7 +90,9 @@ export class ApprovalQueue {
    * active at a time. The pending map tracks in-flight requests for UI
    * rendering (e.g. ctx.ui widget).
    *
-   * Fail-closed: if no resolver is bound, rejects immediately (D7).
+   * Fail-closed (D7): if no resolver is bound, rejects with a clear error.
+   * The caller (gate) should catch this and treat it as a denial, auditing
+   * with approver "system:fail-closed".
    */
   async requestApproval(req: ApprovalRequest): Promise<Decision> {
     if (this.resolver === null) {
@@ -100,21 +120,25 @@ export class ApprovalQueue {
   }
 
   /**
-   * Out-of-band approve — settles a deferred promise keyed by toolCallId.
-   * Used by Slice 4's RPC `/approve` command (Hermes §8 respond pattern).
-   * For Slice 2's TUI resolver this is not the primary path (resolver is
-   * interactive), but the method must exist for interface completeness.
+   * Out-of-band approve — pending-map cleanup only.
+   *
+   * Removes the entry from the pending map so the UI widget clears.
+   * Does NOT settle the resolver's in-flight promise. Full out-of-band
+   * settlement (where approve(id) triggers a stored {resolve,reject} pair
+   * keyed by toolCallId) is Slice 4's RPC resolver concern.
+   *
    * Safe to call with an unknown id (no-op).
    */
   approve(toolCallId: string): void {
-    // The out-of-band settle map is populated by resolvers that implement
-    // a deferred pattern. For the Slice-2 TUI resolver the resolver itself
-    // drives the decision; this method is a no-op until Slice 4.
     this.pendingMap.delete(toolCallId);
   }
 
   /**
-   * Out-of-band reject — symmetric to approve().
+   * Out-of-band reject — pending-map cleanup only.
+   *
+   * Symmetric to approve(). Does NOT settle the resolver's in-flight promise.
+   * Full out-of-band settlement is Slice 4.
+   *
    * Safe to call with an unknown id (no-op).
    */
   reject(toolCallId: string): void {

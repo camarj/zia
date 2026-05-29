@@ -43,9 +43,14 @@ export interface AuditEntry {
 }
 
 // ---------------------------------------------------------------------------
-// AuditLog interface — swappable backend (AQ-11)
+// AuditLog interface — swappable backend (AQ-11, D5)
 // ---------------------------------------------------------------------------
 
+/**
+ * Note: the interface method is record() / AuditEntry per design §D5.
+ * The spec draft used append() / AuditRecord — the design is authoritative.
+ * Slice 3's SqliteAuditLog must implement record() against this interface.
+ */
 export interface AuditLog {
   record(entry: AuditEntry): Promise<void>;
 }
@@ -77,25 +82,19 @@ export class JsonlAuditLog implements AuditLog {
       resolveResult = r;
     });
 
-    this.writeChain = this.writeChain
-      .then(async () => {
-        try {
-          const line = JSON.stringify(entry) + "\n";
-          await appendFile(this.filePath, line, "utf8");
-        } catch (err) {
-          // Swallow — audit write failure must not crash the agent (AQ-10)
-          process.stderr.write(
-            `[zia/audit] write failure for ${this.filePath}: ${String(err)}\n`,
-          );
-        } finally {
-          resolveResult();
-        }
-      })
-      .catch(() => {
-        // Belt-and-suspenders: if the .then() itself throws for any reason,
-        // still resolve the caller and keep the chain alive.
+    this.writeChain = this.writeChain.then(async () => {
+      try {
+        const line = JSON.stringify(entry) + "\n";
+        await appendFile(this.filePath, line, "utf8");
+      } catch (err) {
+        // Swallow — audit write failure must not crash the agent (AQ-10)
+        process.stderr.write(
+          `[zia/audit] write failure for ${this.filePath}: ${String(err)}\n`,
+        );
+      } finally {
         resolveResult();
-      });
+      }
+    });
 
     return result;
   }

@@ -260,7 +260,7 @@ describe("AuditEntry — field completeness (AQ-9)", () => {
     expect(rec?.approver).toBe("tui-admin");
   });
 
-  it("AL-13: error entry has error message and auto decision", async () => {
+  it("AL-13: non-null error field is preserved verbatim (I/O fidelity — field values not semantically validated)", async () => {
     const dir = await makeTempDir();
     const log = new JsonlAuditLog(join(dir, "audit.jsonl"));
     await log.record(
