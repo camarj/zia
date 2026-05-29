@@ -1,0 +1,28 @@
+{
+  "name": "@zia/tools",
+  "version": "0.0.0",
+  "private": true,
+  "description": "MCP adapter and tool registry for zia — bridges MCP servers to pi.dev WrappableTools",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "typebox": "^1.1.38",
+    "@zia/callbacks": "workspace:*",
+    "yaml": "^2.6.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.8"
+  }
+}
