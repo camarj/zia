@@ -10,6 +10,7 @@ import {
   SessionManager,
   type AgentSessionRuntime,
   type CreateAgentSessionRuntimeFactory,
+  type ExtensionFactory,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -82,6 +83,19 @@ export interface CreateZiaAgentOptions {
    * TUI and cron callers that omit this field see no behaviour change.
    */
   cwd?: string;
+  /**
+   * In-process pi.dev extension factories to load for this agent.
+   *
+   * Passed straight to the resource loader's `extensionFactories`, which load
+   * regardless of `noExtensions: true` — so host extension auto-discovery stays
+   * OFF (per-agent isolation) while entry points can still inject their own
+   * presentation/behaviour extensions. The TUI entry point uses this to register
+   * the zia-branded header (see tui-runner.ts + tui-header-extension.ts).
+   *
+   * Channel-agnostic: extensions self-guard on `ctx.hasUI`, so TUI-only ones are
+   * no-ops in RPC / print modes. Defaults to [] (no extensions).
+   */
+  extensionFactories?: ExtensionFactory[];
 }
 
 export interface ZiaAgentHandle {
@@ -199,6 +213,10 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
         noPromptTemplates: true,
         noExtensions: true,
         noThemes: true,
+        // Inline, in-process extensions (e.g. the zia header). These load even
+        // with noExtensions: true — that flag only suppresses on-disk host
+        // discovery, never the explicit factories passed here.
+        extensionFactories: opts.extensionFactories ?? [],
       },
     });
     return {

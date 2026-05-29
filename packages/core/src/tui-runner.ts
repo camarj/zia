@@ -2,6 +2,7 @@ import { InteractiveMode, type ExtensionUIContext } from "@earendil-works/pi-cod
 import { TuiApprovalResolver } from "@zia/callbacks";
 
 import { createZiaAgent, type CreateZiaAgentOptions } from "./agent.ts";
+import { ziaHeaderExtension } from "./tui-header-extension.ts";
 
 /**
  * Run a zia agent in interactive TUI mode.
@@ -24,6 +25,9 @@ export async function runZiaAgentTui(opts: CreateZiaAgentOptions): Promise<void>
 
   const { runtime, queue } = await createZiaAgent({
     ...opts,
+    // Brand the TUI with zia's header (replaces pi.dev's built-in banner).
+    // Merged ahead of any caller-supplied factories so the zia banner wins.
+    extensionFactories: [ziaHeaderExtension, ...(opts.extensionFactories ?? [])],
     onGatedCtx: (rest: readonly unknown[]) => {
       const ctx = rest[2] as { ui?: ExtensionUIContext } | undefined;
       if (ctx?.ui && resolver) {
