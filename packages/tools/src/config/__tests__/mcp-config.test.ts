@@ -44,10 +44,27 @@ describe("readMcpConfig", () => {
     expect(configs).toEqual([]);
   });
 
-  it("throws on malformed YAML (non-ENOENT read error is re-thrown)", async () => {
+  it("re-throws non-ENOENT filesystem errors (e.g. EACCES permission denied)", async () => {
     const err = Object.assign(new Error("EACCES"), { code: "EACCES" });
     mockReadFile.mockRejectedValue(err);
     await expect(readMcpConfig("/fake/ficha")).rejects.toThrow("EACCES");
+  });
+
+  it("rejects with 'not valid YAML' when file content is syntactically invalid YAML (S-1)", async () => {
+    mockReadFile.mockResolvedValue(`{ unclosed` as unknown as string);
+    await expect(readMcpConfig("/fake/ficha")).rejects.toThrow(/not valid YAML/);
+  });
+
+  it("returns [] and warns on structural violation (W-4)", async () => {
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    // 'servers' must be an array; passing a string is a structural violation
+    mockReadFile.mockResolvedValue(`servers: "linear"` as unknown as string);
+    const configs = await readMcpConfig("/fake/ficha");
+    expect(configs).toEqual([]);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("mcp.yaml"),
+    );
+    warnSpy.mockRestore();
   });
 
   it("reads from fichaDir/mcp.yaml", async () => {
@@ -136,5 +153,27 @@ describe("resolveSpawn", () => {
     const result = resolveSpawn({ name: "srv", command: "npx srv", env: {} }, {});
     expect(result).not.toBeNull();
     expect(result!.env).toEqual({});
+  });
+
+  // W-1: brace form ${VARNAME} must be supported in addition to bare $VARNAME
+  it("expands ${VAR} brace form when the env var is set (W-1)", () => {
+    const result = resolveSpawn(
+      { name: "linear", command: "npx server", env: { LINEAR_API_KEY: "${MY_LINEAR_KEY}" } },
+      { MY_LINEAR_KEY: "brace-token" },
+    );
+    expect(result).not.toBeNull();
+    expect(result!.env).toEqual({ LINEAR_API_KEY: "brace-token" });
+  });
+
+  it("warns and returns null when ${VAR} brace form var is not set in env (W-1)", () => {
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const result = resolveSpawn(
+      { name: "linear", command: "npx server", env: { LINEAR_API_KEY: "${AGENT_LINEAR_KEY}" } },
+      {},
+    );
+    expect(result).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("$AGENT_LINEAR_KEY"));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("not set"));
+    warnSpy.mockRestore();
   });
 });

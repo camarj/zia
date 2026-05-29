@@ -42,8 +42,10 @@ export interface McpCallResult {
 export function mapResult(r: McpCallResult): ToolResult {
   try {
     const contentItems = r.content ?? [];
-    const mapped = Array.from(contentItems).map(toTextContent);
 
+    // isError:true branch must come BEFORE mapping content items — W-2.
+    // `mapped` is only needed on the success path; computing it unconditionally
+    // in the error branch is dead work and makes control flow harder to read.
     if (r.isError === true) {
       return {
         content: [
@@ -59,6 +61,8 @@ export function mapResult(r: McpCallResult): ToolResult {
       };
     }
 
+    // Success path — map content items to ToolResultContent (SPEC-ERR-2).
+    const mapped = Array.from(contentItems).map(toTextContent);
     return {
       content: mapped,
       details: { isError: false },

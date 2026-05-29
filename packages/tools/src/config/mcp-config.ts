@@ -37,6 +37,10 @@ export interface ResolvedServerSpawn {
 // ---------------------------------------------------------------------------
 
 const mcpServerEntrySchema = z.object({
+  // `name` is intentionally optional here so that entries without it parse
+  // successfully (zod doesn't throw). The readMcpConfig loop explicitly guards
+  // for !entry.name and skips the entry with a warn (SPEC-YAML-5, SC-11).
+  // McpServerConfig.name is non-optional; it is only assigned after that guard.
   name: z.string().min(1).optional(),
   command: z.string().min(1),
   env: z.record(z.string()).optional(),
@@ -89,7 +93,9 @@ export async function readMcpConfig(fichaDir: string): Promise<McpServerConfig[]
 
   const parsed = mcpYamlSchema.safeParse(doc);
   if (!parsed.success) {
-    // Tolerate unknown top-level keys; only fail on structural violations
+    // Structural violation (e.g. servers: "linear" instead of a list).
+    // Warn so operators can diagnose malformed config, then degrade gracefully.
+    warn(`${filePath} has an invalid structure: ${parsed.error.message}`);
     return [];
   }
 
@@ -127,11 +133,17 @@ export function resolveSpawn(
   const command = tokens[0] ?? cfg.command;
   const args = tokens.slice(1);
 
-  // Expand env vars (SPEC-YAML-3)
+  // Expand env vars (SPEC-YAML-3).
+  // Supports both bare ($VARNAME) and brace (${VARNAME}) forms — W-1.
   const resolvedEnv: Record<string, string> = {};
   for (const [key, rawValue] of Object.entries(cfg.env ?? {})) {
     if (rawValue.startsWith("$")) {
-      const varName = rawValue.slice(1);
+      // Strip leading $ and optional surrounding braces to get the var name.
+      const inner = rawValue.slice(1);
+      const varName =
+        inner.startsWith("{") && inner.endsWith("}")
+          ? inner.slice(1, -1)
+          : inner;
       const expanded = env[varName];
       if (expanded === undefined) {
         warn(
