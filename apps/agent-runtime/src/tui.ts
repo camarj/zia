@@ -17,6 +17,12 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Suppress pi.dev's "new version available · run pi update" startup banner —
+  // it points at the SDK's upstream, which is noise for a zia agent. The branded
+  // header (zia banner) is installed separately via the ziaHeaderExtension.
+  // `??=` so an operator can still force the check back on with the env var.
+  process.env.PI_SKIP_VERSION_CHECK ??= "1";
+
   const baseDir = process.env.INIT_CWD ?? process.cwd();
   const fichaDir = resolve(baseDir, fichaArg);
 
