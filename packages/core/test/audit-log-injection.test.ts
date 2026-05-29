@@ -131,27 +131,11 @@ describe("createZiaAgent — auditLog DI seam (SC-15)", () => {
   it("uses JsonlAuditLog writing to <fichaDir>/audit.jsonl when no auditLog is injected", async () => {
     const fichaDir = await makeFixture();
 
-    // Spy on the JsonlAuditLog constructor to capture which path it's called with.
-    const constructorCalls: string[] = [];
-    vi.spyOn(JsonlAuditLog.prototype as { filePath?: string }, "record").mockImplementation(
-      function (this: JsonlAuditLog & { filePath?: string }) {
-        return Promise.resolve();
-      },
-    );
-    // We need to intercept construction. Use a prototype approach: spy on
-    // the constructor indirectly by checking what value ends up in `filePath`.
-    // Since filePath is private, the cleanest observable: wrap via a subclass
-    // spy or use the fact that `record()` writes to that path.
-    //
-    // Simplest reliable approach: spy at the module-import level by replacing
-    // JsonlAuditLog temporarily. Since vitest does not support spyOn class
-    // constructors directly in ESM without full module mock, we verify the
-    // invariant from the other direction: when NO auditLog is provided, the
-    // function must NOT reject with any audit-log-related error, AND the result
-    // must be a valid ZiaAgentHandle (meaning the default path was used cleanly).
+    // When no auditLog is supplied the function must complete without error
+    // (the default JsonlAuditLog path is used cleanly). The handle must be
+    // a valid ZiaAgentHandle with runtime and queue.
     const result = await createZiaAgent({ fichaDir, rawTools: [] });
 
-    // The handle was returned — default audit log construction succeeded
     expect(result).toHaveProperty("runtime");
     expect(result).toHaveProperty("queue");
   });
