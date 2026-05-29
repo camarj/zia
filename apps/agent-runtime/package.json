@@ -17,6 +17,7 @@
     "@inquirer/prompts": "^7.2.1",
     "@zia/core": "workspace:*",
     "@zia/providers": "workspace:*",
+    "@zia/tools": "workspace:*",
     "yaml": "^2.6.0"
   },
   "devDependencies": {

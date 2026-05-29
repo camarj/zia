@@ -29,6 +29,9 @@ importers:
       '@zia/providers':
         specifier: workspace:*
         version: link:../../packages/providers
+      '@zia/tools':
+        specifier: workspace:*
+        version: link:../../packages/tools
       yaml:
         specifier: ^2.6.0
         version: 2.9.0
