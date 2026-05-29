@@ -102,13 +102,15 @@ END;
 
 CREATE TRIGGER IF NOT EXISTS audit_entries_fts_update
 AFTER UPDATE ON audit_entries BEGIN
-  UPDATE audit_entries_fts
-    SET tool_name = new.tool_name, input = new.input
-  WHERE rowid = new.id;
+  INSERT INTO audit_entries_fts (audit_entries_fts, rowid, tool_name, input)
+  VALUES ('delete', old.id, old.tool_name, old.input);
+  INSERT INTO audit_entries_fts (rowid, tool_name, input)
+  VALUES (new.id, new.tool_name, new.input);
 END;
 
 CREATE TRIGGER IF NOT EXISTS audit_entries_fts_delete
 AFTER DELETE ON audit_entries BEGIN
-  DELETE FROM audit_entries_fts WHERE rowid = old.id;
+  INSERT INTO audit_entries_fts (audit_entries_fts, rowid, tool_name, input)
+  VALUES ('delete', old.id, old.tool_name, old.input);
 END;
 `.trim();
