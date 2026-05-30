@@ -19,6 +19,7 @@ import type { AuditEntry, AuditLog } from "@zia/callbacks";
 import type { Database } from "./sqlite-shim.ts";
 import { incrementWriteCounter } from "./db.ts";
 import { retryWithJitter } from "./retry.ts";
+import { sanitizeFtsQuery } from "./fts.ts";
 
 // ---------------------------------------------------------------------------
 // SearchableAuditLog interface (O2 resolved — declared in persistence, not callbacks)
@@ -58,28 +59,6 @@ interface AuditRow {
   input: string;
   output: string | null;
   error: string | null;
-}
-
-// ---------------------------------------------------------------------------
-// FTS5 query sanitization (SPEC-R8)
-// ---------------------------------------------------------------------------
-
-/**
- * Wrap each whitespace-delimited token in double-quotes so FTS5 boolean
- * operators (AND, OR, NOT, NEAR, *, :) are treated as literal terms.
- *
- * Internal double-quotes inside a token are escaped by doubling them.
- *
- * Example:
- *   "send_email AND NOT query_linear" → '"send_email" "AND" "NOT" "query_linear"'
- */
-function sanitizeFtsQuery(query: string): string {
-  return query
-    .trim()
-    .split(/\s+/)
-    .filter((t) => t.length > 0)
-    .map((token) => `"${token.replace(/"/g, '""')}"`)
-    .join(" ");
 }
 
 // ---------------------------------------------------------------------------
