@@ -2,6 +2,8 @@
 
 > No timeline. Quality over speed. Each phase is a real, usable deliverable.
 
+> **Ordering note (2026-05):** the central agent harness is completed **before** the communication layers. We close the functional core — the **F-CORE-1…10** requirements in [`PRD.md` §4.bis](PRD.md) (builtin tools, tool registry, runtime memory, context compaction, prompt caching, budget enforcement, runtime model switch) — validated entirely through the CLI/TUI, and only then build gateways, the Web UI, and Docker. This re-sequences items inside Phases 1–2 (Web UI and Docker shift later) without changing the milestones.
+
 ## Phase -1 — Bootstrap ✅ (current)
 
 Project skeleton, docs, Claude Code skills, gentle-ai setup, agent template.

@@ -440,6 +440,8 @@ Entrada de canal → gateway.runner.dispatch()
 
 # Roadmap de construcción
 
+> **Nota de reordenamiento (2026-05):** tras auditar el harness de Hermes contra el código actual, completamos el **núcleo funcional del agente antes** que las capas de comunicación. El bloque de trabajo inmediato son los requisitos **F-CORE-1…10** de [`PRD.md` §4.bis](PRD.md) (builtin tools + registry, memoria en runtime, compactación de contexto, prompt caching, budget enforcement, cambio de modelo en runtime, slash commands), validados por CLI/TUI. La Web UI (`apps/agent-web-ui`) y Docker se mueven **después** del núcleo. Esto reordena ítems dentro de las Fases 1–2; no cambia los hitos.
+
 ## Fase -1 — Bootstrap (esta fase)
 
 ### Estructura base
