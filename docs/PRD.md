@@ -56,6 +56,39 @@ Las empresas pequeñas y medianas (5-50 personas) necesitan apalancarse con IA s
 - **F12.** `npm create zia-agent` scaffolds una ficha + docker-compose.
 - **F13.** Templates de ficha para 3-4 roles comunes (proyectos, comercial, soporte, financiero).
 
+## 4.bis Paridad funcional de núcleo con Hermes
+
+> Esta sección surge de una auditoría del **harness central de Hermes** (sus features y arquitectura reales) contra el código actual de zia. Captura las capacidades del **cerebro del agente** que aún faltan. Son capacidades **in-process**, validables por CLI/TUI, **independientes de las capas de comunicación** (gateways). Por decisión de proyecto, el núcleo funcional se completa **antes** que los gateways y Docker.
+>
+> Estado: ✅ ya cubierto · ❌ falta · ⚠️ parcial. "pi.dev" indica si el SDK ya lo provee (no se reimplementa, solo se expone/configura).
+
+### Ya cubierto (referencia)
+- Loop del agente (wrapper sobre pi.dev), prompt builder (SOUL/POLICIES/KNOWLEDGE/MEMORY), adaptador MCP, aprobación + clasificación de riesgo + audit, persistencia SQLite+FTS5, y cambio de modelo estático por CLI.
+
+### Requisitos funcionales del núcleo (faltantes)
+
+- **F-CORE-1.** El agente dispone de **builtin tools** (read, write, edit, bash, search-files) expuestas a través del registry, y todas pasan por el gate de aprobación según `POLICIES.md`. *(pi.dev las provee; hoy zia las desactiva con `tools: []`.)*
+- **F-CORE-2.** Existe un **tool registry** con auto-registro al importar, más scaffolding para definir tools custom vía `defineTool()`.
+- **F-CORE-3.** El agente puede **leer y escribir su `MEMORY.md` en runtime** mediante una memory tool (no solo leerla al arrancar).
+- **F-CORE-4.** El agente puede **buscar en el historial de la sesión** vía FTS5 (reusa `packages/persistence`).
+- **F-CORE-5.** Existe `packages/memory` con providers **file-based** y **sqlite-fts**, con write-back, semántica de *frozen snapshot* (la memoria carga como snapshot al inicio de sesión; las escrituras van a disco pero no mutan el system prompt hasta una nueva sesión) y límites de tamaño.
+- **F-CORE-6.** **Compactación de contexto** con disparo por umbral y linaje de sesión (`parent_session_id`). *(pi.dev expone `compact` por RPC pero sin auto-trigger; zia configura el umbral y el wrapper.)*
+- **F-CORE-7.** **Prompt caching** con breakpoints de Anthropic sobre el bloque estable del prompt. *(pi.dev cubre la mayor parte; zia valida y configura.)*
+- **F-CORE-8.** **Enforcement de presupuesto** por agente (`monthly_budget_usd`): el agente avisa y se detiene al superar el límite. *(Hoy el campo está declarado en `profile.yaml` pero no se aplica.)*
+- **F-CORE-9.** **Cambio de modelo en runtime** dentro de la sesión: Ctrl+P en la TUI y `set_model` por RPC, sin reiniciar. *(pi.dev lo soporta; falta el wiring.)* Complementa F-LLM-2.
+- **F-CORE-10.** **Slash commands de control** disponibles para el jefe en la sesión: `/model`, `/memory`, `/status`, `/help`.
+
+### No-goals del núcleo (Hermes los tiene; zia NO en este bloque)
+
+Se documentan explícitamente con su razón, para revisitar después. No forman parte de la visión "empleado corporativo con aprobación":
+
+- **Code execution** (Python aislada vía RPC) — orientado a coding, no al rol de empleado.
+- **Creación/gestión autónoma de skills** por el agente — zia usa fichas estáticas versionadas en git y revisadas por PR, no auto-generación.
+- **Memory providers externos (Honcho, Mem0, etc.) y user-modeling** — zia es local-first (file + sqlite); los 9 providers externos de Hermes quedan fuera.
+- **Subagent delegation / mixture-of-agents** — se evalúa en Fase 3+.
+- **Voz/audio, generación de imagen/video, automatización de browser, computer-use, kanban, generación de training-data/batch** — fuera de la visión del producto.
+- **Credential pools/rotation y context references (`@file`/`@url`/`@diff`)** — *nice-to-have* post-MVP.
+
 ## 5. Requisitos no-funcionales
 
 - **NF1. Self-hosted obligatorio**: cero dependencia de servicios cloud propietarios. Pi.dev SDK + Anthropic API es la única dependencia externa runtime.
