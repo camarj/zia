@@ -12,6 +12,9 @@
  *
  * v2 additions: DDL_MESSAGES, DDL_MESSAGES_FTS, DDL_MESSAGES_FTS_TRIGGERS
  * appended after audit blocks (ADR-D6 — additive only, no ALTER).
+ *
+ * v3 additions: DDL_MEMORY_ENTRIES, DDL_MEMORY_FTS, DDL_MEMORY_FTS_TRIGGERS
+ * appended after messages blocks (ADR-M6 — additive only, no ALTER).
  */
 
 import Database from "./sqlite-shim.ts";
@@ -20,6 +23,9 @@ import {
   DDL_AUDIT_ENTRIES,
   DDL_AUDIT_FTS,
   DDL_AUDIT_FTS_TRIGGERS,
+  DDL_MEMORY_ENTRIES,
+  DDL_MEMORY_FTS,
+  DDL_MEMORY_FTS_TRIGGERS,
   DDL_MESSAGES,
   DDL_MESSAGES_FTS,
   DDL_MESSAGES_FTS_TRIGGERS,
@@ -116,6 +122,7 @@ export function openDatabase(path: string): DB {
   // 3. Schema DDL — run each statement block in sequence.
   //    _meta must be first so the version gate can read it.
   //    v2: messages tables appended after audit blocks (ADR-D6).
+  //    v3: memory_entries tables appended after messages blocks (ADR-M6).
   for (const block of [
     DDL_META,
     DDL_SESSIONS,
@@ -125,6 +132,9 @@ export function openDatabase(path: string): DB {
     DDL_MESSAGES,
     DDL_MESSAGES_FTS,
     DDL_MESSAGES_FTS_TRIGGERS,
+    DDL_MEMORY_ENTRIES,
+    DDL_MEMORY_FTS,
+    DDL_MEMORY_FTS_TRIGGERS,
   ]) {
     db.exec(block);
   }
