@@ -1,22 +1,27 @@
 /**
- * schema.ts — DDL constants and SCHEMA_VERSION (ADR-5, SPEC-DDL-1..5).
+ * schema.ts — DDL constants and SCHEMA_VERSION (ADR-5, SPEC-DDL-1..5, ADR-D6).
  *
  * All DDL lives here so db.ts stays focused on lifecycle, and so schema
  * changes are easy to diff in git. No logic — constants only.
+ *
+ * SCHEMA_VERSION 2 (additive): adds messages table + messages_fts virtual
+ * table + three sync triggers. No existing tables modified.
  */
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 // ---------------------------------------------------------------------------
 // SPEC-DDL-1 — _meta table
 // Must be created BEFORE all other tables (schema version gate reads it).
+// v2: seeds '2' on fresh open; upgrades v1 rows to '2' idempotently.
 // ---------------------------------------------------------------------------
 export const DDL_META = `
 CREATE TABLE IF NOT EXISTS _meta (
   key   TEXT NOT NULL PRIMARY KEY,
   value TEXT NOT NULL
 );
-INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '1');
+INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '2');
+UPDATE _meta SET value='2' WHERE key='schema_version' AND CAST(value AS INTEGER) < 2;
 `.trim();
 
 // ---------------------------------------------------------------------------
@@ -112,5 +117,65 @@ CREATE TRIGGER IF NOT EXISTS audit_entries_fts_delete
 AFTER DELETE ON audit_entries BEGIN
   INSERT INTO audit_entries_fts (audit_entries_fts, rowid, tool_name, input)
   VALUES ('delete', old.id, old.tool_name, old.input);
+END;
+`.trim();
+
+// ---------------------------------------------------------------------------
+// SPEC-F4-1 / ADR-D6 — messages table (v2 additive)
+// ---------------------------------------------------------------------------
+export const DDL_MESSAGES = `
+CREATE TABLE IF NOT EXISTS messages (
+  id          INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  session_key TEXT    NOT NULL,
+  role        TEXT    NOT NULL,
+  content     TEXT    NOT NULL,
+  tool_name   TEXT,
+  timestamp   TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_session_key
+  ON messages (session_key);
+
+CREATE INDEX IF NOT EXISTS idx_messages_timestamp
+  ON messages (timestamp);
+`.trim();
+
+// ---------------------------------------------------------------------------
+// SPEC-F4-1 / ADR-D6 — messages_fts virtual table (external-content, v2)
+// FTS columns: content + role. tool_name/timestamp/session_key fetched via
+// rowid join on the base table (mirrors audit_entries_fts pattern).
+// ---------------------------------------------------------------------------
+export const DDL_MESSAGES_FTS = `
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts
+USING fts5(
+  content,
+  role,
+  content='messages',
+  content_rowid='id'
+);
+`.trim();
+
+// ---------------------------------------------------------------------------
+// SPEC-F4-1 / ADR-D6 — FTS5 sync triggers for messages_fts (v2)
+// ---------------------------------------------------------------------------
+export const DDL_MESSAGES_FTS_TRIGGERS = `
+CREATE TRIGGER IF NOT EXISTS messages_fts_insert
+AFTER INSERT ON messages BEGIN
+  INSERT INTO messages_fts (rowid, content, role)
+  VALUES (new.id, new.content, new.role);
+END;
+
+CREATE TRIGGER IF NOT EXISTS messages_fts_update
+AFTER UPDATE ON messages BEGIN
+  INSERT INTO messages_fts (messages_fts, rowid, content, role)
+  VALUES ('delete', old.id, old.content, old.role);
+  INSERT INTO messages_fts (rowid, content, role)
+  VALUES (new.id, new.content, new.role);
+END;
+
+CREATE TRIGGER IF NOT EXISTS messages_fts_delete
+AFTER DELETE ON messages BEGIN
+  INSERT INTO messages_fts (messages_fts, rowid, content, role)
+  VALUES ('delete', old.id, old.content, old.role);
 END;
 `.trim();

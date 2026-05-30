@@ -1,7 +1,7 @@
 /**
  * db.ts — openDatabase: WAL, busy_timeout, schema migrations, checkpoint.
  *
- * Design decisions (ADR-3, ADR-5, ADR-7):
+ * Design decisions (ADR-3, ADR-5, ADR-7, ADR-D6):
  *  - WAL mode is mandatory; openDatabase throws on :memory: (no WAL file).
  *  - busy_timeout = 1000 ms (SQLite-level wait; app retry adds more resilience).
  *  - Schema version gate: throws if DB schema_version > SCHEMA_VERSION.
@@ -9,6 +9,9 @@
  *  - Module-level guard: only ONE process.on('exit') handler is ever registered
  *    per process (prevents handler stacking in test isolation scenarios).
  *  - The caller owns the returned Database handle lifetime.
+ *
+ * v2 additions: DDL_MESSAGES, DDL_MESSAGES_FTS, DDL_MESSAGES_FTS_TRIGGERS
+ * appended after audit blocks (ADR-D6 — additive only, no ALTER).
  */
 
 import Database from "./sqlite-shim.ts";
@@ -17,6 +20,9 @@ import {
   DDL_AUDIT_ENTRIES,
   DDL_AUDIT_FTS,
   DDL_AUDIT_FTS_TRIGGERS,
+  DDL_MESSAGES,
+  DDL_MESSAGES_FTS,
+  DDL_MESSAGES_FTS_TRIGGERS,
   DDL_META,
   DDL_SESSIONS,
   SCHEMA_VERSION,
@@ -109,12 +115,16 @@ export function openDatabase(path: string): DB {
 
   // 3. Schema DDL — run each statement block in sequence.
   //    _meta must be first so the version gate can read it.
+  //    v2: messages tables appended after audit blocks (ADR-D6).
   for (const block of [
     DDL_META,
     DDL_SESSIONS,
     DDL_AUDIT_ENTRIES,
     DDL_AUDIT_FTS,
     DDL_AUDIT_FTS_TRIGGERS,
+    DDL_MESSAGES,
+    DDL_MESSAGES_FTS,
+    DDL_MESSAGES_FTS_TRIGGERS,
   ]) {
     db.exec(block);
   }
