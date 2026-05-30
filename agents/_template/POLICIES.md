@@ -21,6 +21,7 @@ Mutaciones internas o de bajo riesgo que afectan al equipo.
 - Crear tickets en Linear (tools: create_ticket)
 - Postear en canales internos de Slack (tools: post_slack_internal)
 - Crear documentos en Drive o Notion (tools: create_doc)
+- Escribir en la memoria propia del agente (tools: write_memory)
 
 ## Alto — requiere aprobación + comentario del jefe
 

@@ -67,3 +67,9 @@ llm:
       baseUrl: http://localhost:11434/v1
   monthly_budget_usd: 50
   fallback_on_error: true
+
+# Long-term memory backend for this agent (F-CORE-5).
+# Default is `file` (MEMORY.md, human-readable, git-versionable). Uncomment and
+# set `provider: sqlite` to use the searchable FTS5 store in the agent's SQLite DB.
+# memory:
+#   provider: file   # file | sqlite

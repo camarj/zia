@@ -119,11 +119,14 @@ describe("tui.ts composition root wiring (B.5, SPEC-F4-8)", () => {
     await import("../src/tui.ts");
 
     expect(mockCreateBuiltinTools).toHaveBeenCalledOnce();
-    const [cwd, searchFn] = mockCreateBuiltinTools.mock.calls[0]!;
+    const [cwd, opts] = mockCreateBuiltinTools.mock.calls[0]! as [
+      string,
+      { searchFn?: unknown },
+    ];
     expect(typeof cwd).toBe("string");
     expect(cwd).toContain("agents/_template");
-    // searchFn must be a function (closure over messageStore.search)
-    expect(typeof searchFn).toBe("function");
+    // searchFn (in the options object) must be a function (closure over messageStore.search)
+    expect(typeof opts.searchFn).toBe("function");
   });
 
   it("calls messagePersistExtension with the SqliteMessageStore and a sessionKey", async () => {
@@ -177,8 +180,11 @@ describe("tui.ts composition root wiring (B.5, SPEC-F4-8)", () => {
 
     await import("../src/tui.ts");
 
-    const [, searchFn] = mockCreateBuiltinTools.mock.calls[0]! as [string, (q: string, lim?: number) => unknown[]];
-    const results = searchFn("invoice", 5);
+    const [, opts] = mockCreateBuiltinTools.mock.calls[0]! as [
+      string,
+      { searchFn: (q: string, lim?: number) => unknown[] },
+    ];
+    const results = opts.searchFn("invoice", 5);
     expect(mockMessageStore.search).toHaveBeenCalledWith("invoice", 5);
     expect(results).toHaveLength(1);
   });
