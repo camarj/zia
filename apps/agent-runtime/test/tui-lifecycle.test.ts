@@ -39,8 +39,12 @@ const mockHandle = {
 const mockCreateMcpAdapter = vi.fn<(fichaDir: string) => Promise<typeof mockHandle>>()
   .mockResolvedValue(mockHandle);
 
+const mockCreateBuiltinTools = vi.fn<(cwd: string, searchFn?: unknown) => unknown[]>()
+  .mockReturnValue([]);
+
 vi.mock("@zia/tools", () => ({
   createMcpAdapter: mockCreateMcpAdapter,
+  createBuiltinTools: mockCreateBuiltinTools,
 }));
 
 // ---------------------------------------------------------------------------
@@ -50,8 +54,11 @@ vi.mock("@zia/tools", () => ({
 const mockRunZiaAgentTui = vi.fn<(opts: Record<string, unknown>) => Promise<void>>()
   .mockResolvedValue(undefined);
 
+const mockMessagePersistExtension = vi.fn().mockReturnValue(() => undefined);
+
 vi.mock("@zia/core", () => ({
   runZiaAgentTui: mockRunZiaAgentTui,
+  messagePersistExtension: mockMessagePersistExtension,
 }));
 
 // ---------------------------------------------------------------------------
@@ -65,9 +72,15 @@ const mockOpenDatabase = vi
   .fn<(path: string) => { close: () => void }>()
   .mockReturnValue({ close: mockDbClose });
 
+const mockMessageStore = {
+  search: vi.fn().mockReturnValue([]),
+  record: vi.fn(),
+};
+
 vi.mock("@zia/persistence", () => ({
   openDatabase: mockOpenDatabase,
   SqliteAuditLog: vi.fn().mockImplementation(() => ({})),
+  SqliteMessageStore: vi.fn().mockImplementation(() => mockMessageStore),
 }));
 
 // ---------------------------------------------------------------------------
@@ -94,9 +107,13 @@ describe("tui.ts MCP adapter lifecycle wiring (T-17)", () => {
     exitMock.mockClear();
     mockDispose.mockClear();
     mockCreateMcpAdapter.mockClear();
+    mockCreateBuiltinTools.mockClear();
     mockRunZiaAgentTui.mockClear();
+    mockMessagePersistExtension.mockClear();
     mockDbClose.mockClear();
     mockOpenDatabase.mockClear();
+    mockMessageStore.search.mockClear();
+    mockMessageStore.record.mockClear();
 
     // Remove SIGTERM/SIGINT listeners added by previous test runs
     process.removeAllListeners("SIGTERM");
@@ -124,10 +141,13 @@ describe("tui.ts MCP adapter lifecycle wiring (T-17)", () => {
 
     expect(mockRunZiaAgentTui).toHaveBeenCalledOnce();
     const runOpts = mockRunZiaAgentTui.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(runOpts["rawTools"]).toBe(mockTools);
+    // rawTools is now [...handle.tools, ...builtinTools] — an array containing all tools
+    expect(Array.isArray(runOpts["rawTools"])).toBe(true);
     expect(runOpts["fichaDir"]).toContain("agents/_template");
-    // The SQLite-backed auditLog must be wired into the agent (the wiring this PR adds).
+    // The SQLite-backed auditLog must be wired into the agent.
     expect(runOpts["auditLog"]).toBeDefined();
+    // extensionFactories must include the messagePersistExtension (B.4 wiring).
+    expect(Array.isArray(runOpts["extensionFactories"])).toBe(true);
   });
 
   it("calls handle.dispose() in the finally block after runZiaAgentTui resolves", async () => {

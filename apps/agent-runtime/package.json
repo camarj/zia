@@ -23,6 +23,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@zia/callbacks": "workspace:*",
     "tsx": "^4.19.2",
     "typescript": "^5.9.3",
     "vitest": "^2.1.8"

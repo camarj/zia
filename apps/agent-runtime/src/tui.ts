@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import process from "node:process";
 
-import { runZiaAgentTui } from "@zia/core";
-import { openDatabase, SqliteAuditLog } from "@zia/persistence";
-import { createMcpAdapter } from "@zia/tools";
+import { messagePersistExtension, runZiaAgentTui } from "@zia/core";
+import { openDatabase, SqliteAuditLog, SqliteMessageStore } from "@zia/persistence";
+import { createBuiltinTools, createMcpAdapter } from "@zia/tools";
 
 async function main(): Promise<void> {
   const fichaArg = process.argv[2];
@@ -73,8 +73,21 @@ async function main(): Promise<void> {
     // This is the ONLY place @zia/persistence is imported — the composition root owns it.
     db = openDatabase(join(fichaDir, "zia.db"));
     const auditLog = new SqliteAuditLog(db);
-    // SPEC-API-3: pass handle.tools as rawTools and the SQLite-backed auditLog into the agent.
-    await runZiaAgentTui({ fichaDir, rawTools: handle.tools, auditLog });
+
+    // B.4: MessageStore + builtin tools + message-persist extension wiring.
+    // sessionKey identifies this TUI session in the messages table. Gateway
+    // slice will supply real per-session keys; a single TUI session is correct here.
+    const messageStore = new SqliteMessageStore(db);
+    const sessionKey = `tui:${basename(fichaDir)}`;
+    const builtinTools = createBuiltinTools(fichaDir, (q, lim) => messageStore.search(q, lim));
+
+    // SPEC-API-3: rawTools = MCP tools + builtin tools; auditLog + extensionFactories wired.
+    await runZiaAgentTui({
+      fichaDir,
+      rawTools: [...handle.tools, ...builtinTools],
+      auditLog,
+      extensionFactories: [messagePersistExtension(messageStore, sessionKey)],
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`${message}\n`);
