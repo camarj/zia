@@ -90,8 +90,8 @@ describe("openDatabase schema (SC-02, SC-03, SPEC-R11)", () => {
     expect(tables).toContain("_meta");
     expect(tables).toContain("sessions");
     expect(tables).toContain("audit_entries");
-    // No messages table (SPEC-R11)
-    expect(tables).not.toContain("messages");
+    // v2: messages table is now created on open (ADR-D6 additive migration)
+    expect(tables).toContain("messages");
 
     db.close();
   });
@@ -128,7 +128,7 @@ describe("openDatabase schema (SC-02, SC-03, SPEC-R11)", () => {
     db.close();
   });
 
-  it("records schema_version = '1' in _meta (SC-03)", async () => {
+  it("records schema_version = '2' in _meta (SC-03, updated for v2)", async () => {
     const { openDatabase } = await import("../src/db.ts");
     const db = openDatabase(tempDbPath());
 
@@ -136,7 +136,7 @@ describe("openDatabase schema (SC-02, SC-03, SPEC-R11)", () => {
       .prepare("SELECT value FROM _meta WHERE key = 'schema_version'")
       .get() as { value: string } | undefined;
 
-    expect(row?.value).toBe("1");
+    expect(row?.value).toBe("2");
     db.close();
   });
 });
@@ -157,6 +157,6 @@ describe("openDatabase version gate (SC-04, SPEC-R6)", () => {
 
     // Now openDatabase should throw the version gate error
     const { openDatabase } = await import("../src/db.ts");
-    expect(() => openDatabase(path)).toThrow(/schema version 99 > expected 1/);
+    expect(() => openDatabase(path)).toThrow(/schema version 99 > expected 2/);
   });
 });
