@@ -10,6 +10,8 @@ Acciones de solo lectura o internas que no afectan a terceros.
 - Consultar Linear, Notion, Drive, GitHub (tools: search_linear)
 - Generar reportes internos en markdown (tools: generate_report)
 - Buscar en la memoria propia del agente (tools: search_memory)
+- Herramientas builtin de lectura y búsqueda
+tools: read, grep, find, ls, search_session
 
 ## Medio — requiere aprobación con un click
 
@@ -29,6 +31,8 @@ Acciones visibles fuera de la empresa o de alto impacto financiero/legal.
 - Cualquier acción que mueva más de USD 500
 - Postear en canales públicos o redes sociales (tools: post_slack_public)
 - Crear o cerrar PRs en GitHub público (tools: manage_github_pr)
+- Herramientas builtin de escritura y ejecución de comandos
+tools: bash, write, edit
 
 # Reglas de modelo por tipo de tarea (opcional)
 
