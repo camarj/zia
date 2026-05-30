@@ -32,3 +32,35 @@ jobs:
 
       - name: Lint
         run: pnpm lint
+
+      # -----------------------------------------------------------------------
+      # Boundary invariant guards (SPEC-F4-7, SPEC-F1-8, SPEC-F1-7)
+      # These grep checks enforce structural invariants that TypeScript cannot
+      # express: @zia/core must never import @zia/persistence, @zia/tools must
+      # not import @zia/persistence, and agent.ts must keep tools: [].
+      # Each check exits 1 if the forbidden pattern IS found (grep success = bad).
+      # -----------------------------------------------------------------------
+
+      - name: "Guard: @zia/core must not import @zia/persistence (SPEC-F4-7 / INV-1)"
+        run: |
+          if grep -rE "^\s*import .* from ['\"]@zia/persistence['\"]|^\s*import ['\"]@zia/persistence['\"]" packages/core/src/ 2>/dev/null; then
+            echo "ERROR: @zia/core imports @zia/persistence — INV-1 violated"
+            exit 1
+          fi
+          echo "OK: no @zia/persistence import statements in packages/core/src"
+
+      - name: "Guard: @zia/tools must not import @zia/persistence (SPEC-F1-8 / INV-2)"
+        run: |
+          if grep -rE "^\s*import .* from ['\"]@zia/persistence['\"]|^\s*import ['\"]@zia/persistence['\"]" packages/tools/src/ 2>/dev/null; then
+            echo "ERROR: @zia/tools imports @zia/persistence — INV-2 violated"
+            exit 1
+          fi
+          echo "OK: no @zia/persistence import statements in packages/tools/src"
+
+      - name: "Guard: agent.ts must keep tools: [] (SPEC-F1-7 / pi.dev native builtins suppressed)"
+        run: |
+          if ! grep -E "tools:\s*\[\]" packages/core/src/agent.ts > /dev/null 2>&1; then
+            echo "ERROR: 'tools: []' not found in packages/core/src/agent.ts — pi.dev native builtins may have been re-enabled"
+            exit 1
+          fi
+          echo "OK: tools: [] present in packages/core/src/agent.ts"
