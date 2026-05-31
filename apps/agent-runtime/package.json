@@ -9,12 +9,14 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "tui": "tsx src/tui.ts",
+    "print": "tsx src/print.ts",
     "model": "tsx src/cli/model.ts"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.76.0",
     "@earendil-works/pi-coding-agent": "^0.76.0",
     "@inquirer/prompts": "^7.2.1",
+    "@zia/callbacks": "workspace:*",
     "@zia/core": "workspace:*",
     "@zia/memory": "workspace:*",
     "@zia/persistence": "workspace:*",
@@ -24,7 +26,6 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "@zia/callbacks": "workspace:*",
     "tsx": "^4.19.2",
     "typescript": "^5.9.3",
     "vitest": "^2.1.8"

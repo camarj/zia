@@ -21,3 +21,5 @@ export type { ToolGateDeps } from "./tool-gate.js";
 
 export { TuiApprovalResolver } from "./tui-resolver.js";
 export type { TuiApprovalResolverDeps } from "./tui-resolver.js";
+
+export { AutoApproveResolver } from "./auto-approve-resolver.js";
