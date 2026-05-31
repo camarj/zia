@@ -16,6 +16,7 @@ export {
   DDL_MEMORY_ENTRIES,
   DDL_MEMORY_FTS,
   DDL_MEMORY_FTS_TRIGGERS,
+  DDL_SESSIONS_LINEAGE_INDEX,
 } from "./schema.ts";
 export { SessionStore, buildSessionKey } from "./session-store.ts";
 export { SqliteAuditLog } from "./audit-store.ts";

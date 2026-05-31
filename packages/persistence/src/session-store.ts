@@ -95,6 +95,7 @@ export class SessionStore {
   private readonly selectByKeyStmt: ReturnType<Database["prepare"]>;
   private readonly selectByIdStmt: ReturnType<Database["prepare"]>;
   private readonly endSessionStmt: ReturnType<Database["prepare"]>;
+  private readonly setParentStmt: ReturnType<Database["prepare"]>;
 
   constructor(private readonly db: Database) {
     this.insertStmt = db.prepare(`
@@ -118,6 +119,12 @@ export class SessionStore {
       UPDATE sessions
          SET ended_at  = @endedAt,
              end_reason = @endReason
+       WHERE id = @id
+    `);
+
+    this.setParentStmt = db.prepare(`
+      UPDATE sessions
+         SET parent_session_id = @parentSessionId
        WHERE id = @id
     `);
   }
@@ -205,5 +212,31 @@ export class SessionStore {
     }
 
     return ancestors;
+  }
+
+  /**
+   * Record a parent→child lineage relationship between two existing sessions.
+   *
+   * Sets `parent_session_id` on the child row to point at the parent. This is
+   * the write-side of the compaction lineage contract (F-CORE-6, SPEC-LINEAGE-2,
+   * ADR-4): after pi.dev fires `compaction_end` the composition root calls this
+   * method so ancestry queries via `getLineage()` traverse the full generation
+   * chain.
+   *
+   * Uses BEGIN IMMEDIATE for write-lock safety (SPEC-R3).
+   *
+   * @param childId   ID of the session that was born from compaction.
+   * @param parentId  ID of the session that triggered the compaction.
+   */
+  recordLineage(childId: string, parentId: string): void {
+    const writeTransaction = this.db.transaction(() => {
+      this.setParentStmt.run({ id: childId, parentSessionId: parentId });
+    });
+
+    retryWithJitter(() =>
+      (writeTransaction as unknown as { immediate: () => void }).immediate(),
+    );
+
+    incrementWriteCounter(this.db);
   }
 }

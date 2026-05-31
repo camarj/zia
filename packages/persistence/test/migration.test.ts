@@ -1,11 +1,15 @@
 /**
- * migration.test.ts — Schema migration tests (A.3, SPEC-F4-1, SPEC-F4-2, SPEC-SCHEMA-4).
+ * migration.test.ts — Schema migration tests (A.3, SPEC-F4-1, SPEC-F4-2, SPEC-SCHEMA-4,
+ *                     SPEC-LINEAGE-3).
  *
- * (a) Fresh open → schema_version='3', messages + messages_fts + memory_entries exist.
- * (b) Hand-seeded v1 DB (only audit tables) → open succeeds → schema_version='3'
+ * (a) Fresh open → schema_version='4', messages + messages_fts + memory_entries exist,
+ *     idx_sessions_parent_session_id index exists.
+ * (b) Hand-seeded v1 DB (only audit tables) → open succeeds → schema_version='4'
  *     → messages + messages_fts + memory_entries created → pre-existing audit rows intact.
+ * (c) Hand-seeded v3 DB → open succeeds → schema_version='4'
+ *     → idx_sessions_parent_session_id added → pre-existing sessions rows intact.
  *
- * Note: schema migrations are additive (CREATE TABLE IF NOT EXISTS).
+ * Note: schema migrations are additive (CREATE TABLE/INDEX IF NOT EXISTS).
  * Each fresh openDatabase call always lands on the current SCHEMA_VERSION.
  */
 
@@ -116,7 +120,7 @@ describe("Schema migration — fresh open (SPEC-F4-1)", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("creates schema_version='3' on a fresh database", async () => {
+  it("creates schema_version='4' on a fresh database", async () => {
     const { openDatabase } = await import("../src/db.ts");
     const db = openDatabase(join(tempDir, "fresh.db"));
 
@@ -125,7 +129,7 @@ describe("Schema migration — fresh open (SPEC-F4-1)", () => {
       .get() as { value: string } | undefined;
 
     expect(row).toBeDefined();
-    expect(row!.value).toBe("3");
+    expect(row!.value).toBe("4");
 
     db.close();
   });
@@ -161,7 +165,7 @@ describe("Schema migration — fresh open (SPEC-F4-1)", () => {
 
 // ---------------------------------------------------------------------------
 
-describe("Schema migration — v1→v3 upgrade (SPEC-F4-1, SPEC-F4-2, SPEC-SCHEMA-4)", () => {
+describe("Schema migration — v1→v4 upgrade (SPEC-F4-1, SPEC-F4-2, SPEC-SCHEMA-4)", () => {
   let tempDir: string;
 
   beforeEach(() => {
@@ -172,7 +176,7 @@ describe("Schema migration — v1→v3 upgrade (SPEC-F4-1, SPEC-F4-2, SPEC-SCHEM
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("opens a v1 DB without error and upgrades schema_version to '3'", async () => {
+  it("opens a v1 DB without error and upgrades schema_version to '4'", async () => {
     const dbPath = join(tempDir, "v1.db");
     seedV1Db(dbPath);
 
@@ -184,7 +188,7 @@ describe("Schema migration — v1→v3 upgrade (SPEC-F4-1, SPEC-F4-2, SPEC-SCHEM
       .prepare("SELECT value FROM _meta WHERE key='schema_version'")
       .get() as { value: string } | undefined;
 
-    expect(row!.value).toBe("3");
+    expect(row!.value).toBe("4");
 
     db.close();
   });
@@ -229,6 +233,103 @@ describe("Schema migration — v1→v3 upgrade (SPEC-F4-1, SPEC-F4-2, SPEC-SCHEM
       .get() as { tool_call_id: string } | undefined;
 
     expect(row?.tool_call_id).toBe("tc-pre-migration");
+
+    db.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe("Schema migration — v3→v4 upgrade (SPEC-LINEAGE-3)", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = makeTempDir();
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function seedV3Db(dbPath: string): void {
+    const db = new BetterSqlite3(dbPath);
+    db.pragma("journal_mode=WAL");
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS _meta (
+        key   TEXT NOT NULL PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '3');
+
+      CREATE TABLE IF NOT EXISTS sessions (
+        id                TEXT NOT NULL PRIMARY KEY,
+        session_key       TEXT NOT NULL UNIQUE,
+        source_platform   TEXT NOT NULL,
+        model_config      TEXT NOT NULL,
+        pi_session_path   TEXT,
+        started_at        TEXT NOT NULL,
+        ended_at          TEXT,
+        end_reason        TEXT,
+        parent_session_id TEXT
+      );
+    `);
+
+    // Seed a session row to verify it survives the migration.
+    db.prepare(`
+      INSERT INTO sessions (id, session_key, source_platform, model_config, started_at)
+      VALUES ('v3-pre-migration', 'agent:main:tui:dm:v3', 'tui', '{}', '2026-01-01T00:00:00Z')
+    `).run();
+
+    db.close();
+  }
+
+  it("opens a v3 DB without error and upgrades schema_version to '4'", async () => {
+    const dbPath = join(tempDir, "v3.db");
+    seedV3Db(dbPath);
+
+    const { openDatabase } = await import("../src/db.ts");
+    const db = openDatabase(dbPath);
+
+    const row = db
+      .prepare("SELECT value FROM _meta WHERE key='schema_version'")
+      .get() as { value: string } | undefined;
+
+    expect(row!.value).toBe("4");
+
+    db.close();
+  });
+
+  it("adds idx_sessions_parent_session_id index when migrating from v3", async () => {
+    const dbPath = join(tempDir, "v3b.db");
+    seedV3Db(dbPath);
+
+    const { openDatabase } = await import("../src/db.ts");
+    const db = openDatabase(dbPath);
+
+    const indexRow = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_sessions_parent_session_id'",
+      )
+      .get() as { name: string } | undefined;
+
+    expect(indexRow?.name).toBe("idx_sessions_parent_session_id");
+
+    db.close();
+  });
+
+  it("preserves pre-existing sessions rows after v3→v4 migration", async () => {
+    const dbPath = join(tempDir, "v3c.db");
+    seedV3Db(dbPath);
+
+    const { openDatabase } = await import("../src/db.ts");
+    const db = openDatabase(dbPath);
+
+    const row = db
+      .prepare("SELECT id FROM sessions WHERE id = 'v3-pre-migration'")
+      .get() as { id: string } | undefined;
+
+    expect(row?.id).toBe("v3-pre-migration");
 
     db.close();
   });

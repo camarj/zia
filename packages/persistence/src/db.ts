@@ -15,6 +15,10 @@
  *
  * v3 additions: DDL_MEMORY_ENTRIES, DDL_MEMORY_FTS, DDL_MEMORY_FTS_TRIGGERS
  * appended after messages blocks (ADR-M6 — additive only, no ALTER).
+ *
+ * v4 additions: DDL_SESSIONS_LINEAGE_INDEX — CREATE INDEX IF NOT EXISTS on
+ * sessions.parent_session_id (SPEC-LINEAGE-2, F-CORE-6 compaction lineage).
+ * No existing tables or data modified.
  */
 
 import Database from "./sqlite-shim.ts";
@@ -31,6 +35,7 @@ import {
   DDL_MESSAGES_FTS_TRIGGERS,
   DDL_META,
   DDL_SESSIONS,
+  DDL_SESSIONS_LINEAGE_INDEX,
   SCHEMA_VERSION,
 } from "./schema.ts";
 
@@ -123,6 +128,7 @@ export function openDatabase(path: string): DB {
   //    _meta must be first so the version gate can read it.
   //    v2: messages tables appended after audit blocks (ADR-D6).
   //    v3: memory_entries tables appended after messages blocks (ADR-M6).
+  //    v4: lineage index on sessions.parent_session_id (SPEC-LINEAGE-2).
   for (const block of [
     DDL_META,
     DDL_SESSIONS,
@@ -135,6 +141,7 @@ export function openDatabase(path: string): DB {
     DDL_MEMORY_ENTRIES,
     DDL_MEMORY_FTS,
     DDL_MEMORY_FTS_TRIGGERS,
+    DDL_SESSIONS_LINEAGE_INDEX,
   ]) {
     db.exec(block);
   }

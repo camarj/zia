@@ -285,6 +285,159 @@ describe("SessionStore.getLineage() — flat parent chain", () => {
 });
 
 // -------------------------------------------------------------------------
+// SPEC-LINEAGE-4 — SessionStore.createSession records parentSessionId
+// -------------------------------------------------------------------------
+
+describe("SessionStore.createSession() — parentSessionId (SPEC-LINEAGE-4)", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = makeTempDir();
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("records parentSessionId when provided and returns it in the SessionRecord", async () => {
+    const { openDatabase } = await import("../src/db.ts");
+    const { SessionStore } = await import("../src/session-store.ts");
+
+    const db = openDatabase(join(tempDir, "lineage.db"));
+    const store = new SessionStore(db);
+
+    // Create parent
+    const parent = store.createSession({
+      sessionKey: "agent:main:tui:dm:parent",
+      sourcePlatform: "tui",
+      modelConfig: "{}",
+      piSessionPath: null,
+      startedAt: "2026-01-01T00:00:00Z",
+      endedAt: null,
+      endReason: null,
+      parentSessionId: null,
+    });
+
+    // Create child with parentSessionId set
+    const child = store.createSession({
+      sessionKey: "agent:main:tui:dm:child",
+      sourcePlatform: "tui",
+      modelConfig: "{}",
+      piSessionPath: null,
+      startedAt: "2026-01-01T01:00:00Z",
+      endedAt: null,
+      endReason: null,
+      parentSessionId: parent.id,
+    });
+
+    // Returned record must have parentSessionId
+    expect(child.parentSessionId).toBe(parent.id);
+
+    // DB must also store it
+    const row = db
+      .prepare("SELECT parent_session_id FROM sessions WHERE id = ?")
+      .get(child.id) as { parent_session_id: string } | undefined;
+    expect(row?.parent_session_id).toBe(parent.id);
+
+    db.close();
+  });
+});
+
+// -------------------------------------------------------------------------
+// SPEC-LINEAGE-4b — SessionStore.recordLineage() convenience method
+// -------------------------------------------------------------------------
+
+describe("SessionStore.recordLineage() (SPEC-LINEAGE-4b)", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = makeTempDir();
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("sets parent_session_id on an existing session row", async () => {
+    const { openDatabase } = await import("../src/db.ts");
+    const { SessionStore } = await import("../src/session-store.ts");
+
+    const db = openDatabase(join(tempDir, "rl.db"));
+    const store = new SessionStore(db);
+
+    const parent = store.createSession({
+      sessionKey: "agent:main:tui:dm:p",
+      sourcePlatform: "tui",
+      modelConfig: "{}",
+      piSessionPath: null,
+      startedAt: "2026-01-01T00:00:00Z",
+      endedAt: null,
+      endReason: null,
+      parentSessionId: null,
+    });
+
+    const child = store.createSession({
+      sessionKey: "agent:main:tui:dm:c",
+      sourcePlatform: "tui",
+      modelConfig: "{}",
+      piSessionPath: null,
+      startedAt: "2026-01-01T01:00:00Z",
+      endedAt: null,
+      endReason: null,
+      parentSessionId: null, // not set yet
+    });
+
+    // recordLineage links child → parent after creation
+    store.recordLineage(child.id, parent.id);
+
+    // Verify persisted
+    const row = db
+      .prepare("SELECT parent_session_id FROM sessions WHERE id = ?")
+      .get(child.id) as { parent_session_id: string } | undefined;
+    expect(row?.parent_session_id).toBe(parent.id);
+
+    db.close();
+  });
+
+  it("is idempotent — calling twice with same args does not throw", async () => {
+    const { openDatabase } = await import("../src/db.ts");
+    const { SessionStore } = await import("../src/session-store.ts");
+
+    const db = openDatabase(join(tempDir, "rl2.db"));
+    const store = new SessionStore(db);
+
+    const parent = store.createSession({
+      sessionKey: "agent:main:tui:dm:p2",
+      sourcePlatform: "tui",
+      modelConfig: "{}",
+      piSessionPath: null,
+      startedAt: "2026-01-01T00:00:00Z",
+      endedAt: null,
+      endReason: null,
+      parentSessionId: null,
+    });
+
+    const child = store.createSession({
+      sessionKey: "agent:main:tui:dm:c2",
+      sourcePlatform: "tui",
+      modelConfig: "{}",
+      piSessionPath: null,
+      startedAt: "2026-01-01T01:00:00Z",
+      endedAt: null,
+      endReason: null,
+      parentSessionId: null,
+    });
+
+    expect(() => {
+      store.recordLineage(child.id, parent.id);
+      store.recordLineage(child.id, parent.id);
+    }).not.toThrow();
+
+    db.close();
+  });
+});
+
+// -------------------------------------------------------------------------
 // Exit-handler stacking guard (review suggestion from PR1)
 // Calling openDatabase twice must not grow process.listenerCount('exit').
 // -------------------------------------------------------------------------

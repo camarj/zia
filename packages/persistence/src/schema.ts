@@ -9,22 +9,27 @@
  *
  * SCHEMA_VERSION 3 (additive): adds memory_entries table + memory_entries_fts
  * virtual table + three sync triggers. No existing tables modified.
+ *
+ * SCHEMA_VERSION 4 (additive): adds idx_sessions_parent_session_id index on
+ * sessions.parent_session_id — activates the lineage column for compaction
+ * tracking (F-CORE-6, SPEC-LINEAGE-2). No existing tables or data modified.
  */
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 // ---------------------------------------------------------------------------
 // SPEC-DDL-1 — _meta table
 // Must be created BEFORE all other tables (schema version gate reads it).
 // v2: seeds '2' on fresh open; upgrades v1 rows to '2' idempotently.
+// v4: seeds '4' on fresh open; upgrades v1/v2/v3 rows to '4' idempotently.
 // ---------------------------------------------------------------------------
 export const DDL_META = `
 CREATE TABLE IF NOT EXISTS _meta (
   key   TEXT NOT NULL PRIMARY KEY,
   value TEXT NOT NULL
 );
-INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '3');
-UPDATE _meta SET value='3' WHERE key='schema_version' AND CAST(value AS INTEGER) < 3;
+INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '4');
+UPDATE _meta SET value='4' WHERE key='schema_version' AND CAST(value AS INTEGER) < 4;
 `.trim();
 
 // ---------------------------------------------------------------------------
@@ -239,4 +244,16 @@ AFTER DELETE ON memory_entries BEGIN
   INSERT INTO memory_entries_fts (memory_entries_fts, rowid, body)
   VALUES ('delete', old.id, old.body);
 END;
+`.trim();
+
+// ---------------------------------------------------------------------------
+// SPEC-LINEAGE-2 — sessions lineage index (v4 additive)
+// Enables efficient ancestry lookups on the parent_session_id FK.
+// The column already existed in v3; this index activates it for query use.
+// CREATE INDEX IF NOT EXISTS — safe to run on both fresh v4 DBs and v3→v4
+// migrations without any ALTER TABLE.
+// ---------------------------------------------------------------------------
+export const DDL_SESSIONS_LINEAGE_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_sessions_parent_session_id
+  ON sessions (parent_session_id);
 `.trim();
