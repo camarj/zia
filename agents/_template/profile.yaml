@@ -33,6 +33,11 @@ llm:
   # credentials_env is optional — defaults to the standard env name per provider
   # (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, ...). The full catalog +
   # interactive CLI picker lands with sdd/llm-provider-cli.
+  #
+  # cacheRetention (F-CORE-7) — Anthropic prompt-cache TTL for the stable ficha
+  # prefix. "short" (5 min, pi.dev default) | "long" (1 hour). Anthropic-only;
+  # a no-op for other providers. Uncomment to extend the TTL for an always-on agent.
+  # cacheRetention: short
   default:
     provider: opencode-go
     model: kimi-k2.6

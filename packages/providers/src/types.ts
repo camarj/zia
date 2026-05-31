@@ -21,14 +21,21 @@ export interface Provider {
 
 export type ResolvedThinkingLevel = "off" | "low" | "medium" | "high";
 
+/** Anthropic prompt-cache TTL (F-CORE-7): "short" = 5 min (pi.dev default),
+ * "long" = 1 hour. Session-wide, declared at the ficha's `llm` level. */
+export type CacheRetention = "short" | "long";
+
 /** Raw YAML shape after parsing `profile.yaml.llm.default`. Credential env-var
- * is optional here — the resolver fills it in from the catalog when absent. */
+ * is optional here — the resolver fills it in from the catalog when absent.
+ * `cacheRetention` comes from the sibling `llm.cacheRetention` field, not from
+ * `llm.default` — it is provider-transport config, not a per-model attribute. */
 export interface FichaLlmDeclaration {
   provider: string;
   modelId: string;
   baseUrl?: string;
   credentialEnv?: string;
   thinkingLevel?: ResolvedThinkingLevel;
+  cacheRetention?: CacheRetention;
 }
 
 /** Re-exported for downstream consumers building Model objects against the

@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { FichaLlmDeclaration } from "./types.ts";
 
 const thinkingLevelSchema = z.enum(["off", "low", "medium", "high"]);
+const cacheRetentionSchema = z.enum(["short", "long"]);
 
 const llmDefaultSchema = z
   .object({
@@ -39,6 +40,11 @@ const profileSchema = z
     llm: z
       .object({
         default: llmDefaultSchema,
+        // F-CORE-7: session-wide Anthropic prompt-cache TTL. Lives at the `llm`
+        // level (not per-model) because it configures the provider transport,
+        // not a model entry. Accepts snake_case too, matching the YAML idiom.
+        cacheRetention: cacheRetentionSchema.optional(),
+        cache_retention: cacheRetentionSchema.optional(),
       })
       .passthrough(),
   })
@@ -93,5 +99,6 @@ export async function readFichaLlm(fichaDir: string): Promise<FichaLlmDeclaratio
     baseUrl: def.baseUrl,
     credentialEnv: def.credentials_env,
     thinkingLevel: def.thinkingLevel,
+    cacheRetention: parsed.data.llm.cacheRetention ?? parsed.data.llm.cache_retention,
   };
 }
