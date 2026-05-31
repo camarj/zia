@@ -1,9 +1,12 @@
 /**
- * migration.test.ts — Schema v1→v2 migration tests (A.3, SPEC-F4-1, SPEC-F4-2).
+ * migration.test.ts — Schema migration tests (A.3, SPEC-F4-1, SPEC-F4-2, SPEC-SCHEMA-4).
  *
- * (a) Fresh open → schema_version='2', messages + messages_fts exist.
- * (b) Hand-seeded v1 DB (only audit tables) → open succeeds → schema_version='2'
- *     → messages + messages_fts created → pre-existing audit rows intact.
+ * (a) Fresh open → schema_version='3', messages + messages_fts + memory_entries exist.
+ * (b) Hand-seeded v1 DB (only audit tables) → open succeeds → schema_version='3'
+ *     → messages + messages_fts + memory_entries created → pre-existing audit rows intact.
+ *
+ * Note: schema migrations are additive (CREATE TABLE IF NOT EXISTS).
+ * Each fresh openDatabase call always lands on the current SCHEMA_VERSION.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -113,7 +116,7 @@ describe("Schema migration — fresh open (SPEC-F4-1)", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("creates schema_version='2' on a fresh database", async () => {
+  it("creates schema_version='3' on a fresh database", async () => {
     const { openDatabase } = await import("../src/db.ts");
     const db = openDatabase(join(tempDir, "fresh.db"));
 
@@ -122,7 +125,7 @@ describe("Schema migration — fresh open (SPEC-F4-1)", () => {
       .get() as { value: string } | undefined;
 
     expect(row).toBeDefined();
-    expect(row!.value).toBe("2");
+    expect(row!.value).toBe("3");
 
     db.close();
   });
@@ -158,7 +161,7 @@ describe("Schema migration — fresh open (SPEC-F4-1)", () => {
 
 // ---------------------------------------------------------------------------
 
-describe("Schema migration — v1→v2 upgrade (SPEC-F4-1, SPEC-F4-2)", () => {
+describe("Schema migration — v1→v3 upgrade (SPEC-F4-1, SPEC-F4-2, SPEC-SCHEMA-4)", () => {
   let tempDir: string;
 
   beforeEach(() => {
@@ -169,7 +172,7 @@ describe("Schema migration — v1→v2 upgrade (SPEC-F4-1, SPEC-F4-2)", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("opens a v1 DB without error and upgrades schema_version to '2'", async () => {
+  it("opens a v1 DB without error and upgrades schema_version to '3'", async () => {
     const dbPath = join(tempDir, "v1.db");
     seedV1Db(dbPath);
 
@@ -181,7 +184,7 @@ describe("Schema migration — v1→v2 upgrade (SPEC-F4-1, SPEC-F4-2)", () => {
       .prepare("SELECT value FROM _meta WHERE key='schema_version'")
       .get() as { value: string } | undefined;
 
-    expect(row!.value).toBe("2");
+    expect(row!.value).toBe("3");
 
     db.close();
   });

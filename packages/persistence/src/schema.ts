@@ -6,9 +6,12 @@
  *
  * SCHEMA_VERSION 2 (additive): adds messages table + messages_fts virtual
  * table + three sync triggers. No existing tables modified.
+ *
+ * SCHEMA_VERSION 3 (additive): adds memory_entries table + memory_entries_fts
+ * virtual table + three sync triggers. No existing tables modified.
  */
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 // ---------------------------------------------------------------------------
 // SPEC-DDL-1 — _meta table
@@ -20,8 +23,8 @@ CREATE TABLE IF NOT EXISTS _meta (
   key   TEXT NOT NULL PRIMARY KEY,
   value TEXT NOT NULL
 );
-INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '2');
-UPDATE _meta SET value='2' WHERE key='schema_version' AND CAST(value AS INTEGER) < 2;
+INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '3');
+UPDATE _meta SET value='3' WHERE key='schema_version' AND CAST(value AS INTEGER) < 3;
 `.trim();
 
 // ---------------------------------------------------------------------------
@@ -177,5 +180,63 @@ CREATE TRIGGER IF NOT EXISTS messages_fts_delete
 AFTER DELETE ON messages BEGIN
   INSERT INTO messages_fts (messages_fts, rowid, content, role)
   VALUES ('delete', old.id, old.content, old.role);
+END;
+`.trim();
+
+// ---------------------------------------------------------------------------
+// SPEC-SCHEMA-1 / ADR-M6 — memory_entries table (v3 additive)
+// Stores per-entry rows for the SqliteFtsMemoryProvider.
+// char_count is denormalized for O(1) cap enforcement without re-measuring.
+// ---------------------------------------------------------------------------
+export const DDL_MEMORY_ENTRIES = `
+CREATE TABLE IF NOT EXISTS memory_entries (
+  id         INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  date       TEXT    NOT NULL,
+  body       TEXT    NOT NULL,
+  char_count INTEGER NOT NULL,
+  created_at TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_entries_created_at
+  ON memory_entries (created_at);
+`.trim();
+
+// ---------------------------------------------------------------------------
+// SPEC-SCHEMA-2 — memory_entries_fts virtual table (external-content, v3)
+// FTS column: body only. content_rowid='id' mirrors messages_fts pattern.
+// ---------------------------------------------------------------------------
+export const DDL_MEMORY_FTS = `
+CREATE VIRTUAL TABLE IF NOT EXISTS memory_entries_fts
+USING fts5(
+  body,
+  content='memory_entries',
+  content_rowid='id'
+);
+`.trim();
+
+// ---------------------------------------------------------------------------
+// SPEC-SCHEMA-3 — FTS5 sync triggers for memory_entries_fts (v3)
+// DELETE trigger is required: SqliteFtsMemoryProvider evicts rows via DELETE.
+// Mirror the messages_fts trigger pattern exactly.
+// ---------------------------------------------------------------------------
+export const DDL_MEMORY_FTS_TRIGGERS = `
+CREATE TRIGGER IF NOT EXISTS memory_entries_fts_insert
+AFTER INSERT ON memory_entries BEGIN
+  INSERT INTO memory_entries_fts (rowid, body)
+  VALUES (new.id, new.body);
+END;
+
+CREATE TRIGGER IF NOT EXISTS memory_entries_fts_update
+AFTER UPDATE ON memory_entries BEGIN
+  INSERT INTO memory_entries_fts (memory_entries_fts, rowid, body)
+  VALUES ('delete', old.id, old.body);
+  INSERT INTO memory_entries_fts (rowid, body)
+  VALUES (new.id, new.body);
+END;
+
+CREATE TRIGGER IF NOT EXISTS memory_entries_fts_delete
+AFTER DELETE ON memory_entries BEGIN
+  INSERT INTO memory_entries_fts (memory_entries_fts, rowid, body)
+  VALUES ('delete', old.id, old.body);
 END;
 `.trim();

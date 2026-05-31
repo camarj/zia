@@ -4,10 +4,11 @@
  * Covers:
  *   SC-01  WAL mode on file DB
  *   SC-02  All tables + triggers created on first open
- *   SC-03  schema_version = '1' recorded
+ *   SC-03  schema_version = '3' recorded
  *   SC-04  version gate throws when schema_version > SCHEMA_VERSION
  *   SC-16  better-sqlite3 shim loads under ESM without errors
  *   SPEC-R1, R2, R6, R13
+ *   SPEC-SCHEMA-1..5  Schema v3: memory_entries + FTS + triggers + migration
  *
  * Note: :memory: DBs cannot test WAL (WAL requires a real file).
  * All WAL-sensitive tests use a temp-dir file DB.
@@ -128,7 +129,7 @@ describe("openDatabase schema (SC-02, SC-03, SPEC-R11)", () => {
     db.close();
   });
 
-  it("records schema_version = '2' in _meta (SC-03, updated for v2)", async () => {
+  it("records schema_version = '3' in _meta (SC-03, updated for v3)", async () => {
     const { openDatabase } = await import("../src/db.ts");
     const db = openDatabase(tempDbPath());
 
@@ -136,7 +137,7 @@ describe("openDatabase schema (SC-02, SC-03, SPEC-R11)", () => {
       .prepare("SELECT value FROM _meta WHERE key = 'schema_version'")
       .get() as { value: string } | undefined;
 
-    expect(row?.value).toBe("2");
+    expect(row?.value).toBe("3");
     db.close();
   });
 });
@@ -157,6 +158,262 @@ describe("openDatabase version gate (SC-04, SPEC-R6)", () => {
 
     // Now openDatabase should throw the version gate error
     const { openDatabase } = await import("../src/db.ts");
-    expect(() => openDatabase(path)).toThrow(/schema version 99 > expected 2/);
+    expect(() => openDatabase(path)).toThrow(/schema version 99 > expected 3/);
+  });
+});
+
+// --- SPEC-SCHEMA-1 — SCHEMA_VERSION constant is 3 ---------------------------
+describe("SCHEMA_VERSION constant (SPEC-SCHEMA-1)", () => {
+  it("SCHEMA_VERSION === 3", async () => {
+    const { SCHEMA_VERSION } = await import("../src/schema.ts");
+    expect(SCHEMA_VERSION).toBe(3);
+  });
+});
+
+// --- SPEC-SCHEMA-2 — memory_entries + FTS table created by openDatabase ------
+describe("memory_entries tables (SPEC-SCHEMA-2)", () => {
+  it("creates memory_entries table", async () => {
+    const { openDatabase } = await import("../src/db.ts");
+    const db = openDatabase(tempDbPath());
+
+    const row = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='memory_entries'",
+      )
+      .get() as { name: string } | undefined;
+
+    expect(row?.name).toBe("memory_entries");
+    db.close();
+  });
+
+  it("creates memory_entries_fts virtual table", async () => {
+    const { openDatabase } = await import("../src/db.ts");
+    const db = openDatabase(tempDbPath());
+
+    const row = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='memory_entries_fts'",
+      )
+      .get() as { name: string } | undefined;
+
+    expect(row?.name).toBe("memory_entries_fts");
+    db.close();
+  });
+
+  it("records _meta.schema_version = '3' on fresh open", async () => {
+    const { openDatabase } = await import("../src/db.ts");
+    const db = openDatabase(tempDbPath());
+
+    const row = db
+      .prepare("SELECT value FROM _meta WHERE key = 'schema_version'")
+      .get() as { value: string } | undefined;
+
+    expect(row?.value).toBe("3");
+    db.close();
+  });
+});
+
+// --- SPEC-SCHEMA-3 — FTS triggers fire on INSERT and DELETE ------------------
+describe("memory_entries FTS triggers (SPEC-SCHEMA-3)", () => {
+  it("creates three FTS sync triggers for memory_entries", async () => {
+    const { openDatabase } = await import("../src/db.ts");
+    const db = openDatabase(tempDbPath());
+
+    const triggers = (
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'memory_entries_fts%'",
+        )
+        .all() as { name: string }[]
+    ).map((r) => r.name);
+
+    expect(triggers).toContain("memory_entries_fts_insert");
+    expect(triggers).toContain("memory_entries_fts_update");
+    expect(triggers).toContain("memory_entries_fts_delete");
+    db.close();
+  });
+
+  it("INSERT trigger: inserted row is searchable via FTS MATCH", async () => {
+    const { openDatabase } = await import("../src/db.ts");
+    const db = openDatabase(tempDbPath());
+
+    db.prepare(
+      "INSERT INTO memory_entries (date, body, char_count, created_at) VALUES (?, ?, ?, ?)",
+    ).run("2026-05-30", "customer Acme pays net30 invoices", 37, "2026-05-30T10:00:00Z");
+
+    const hit = db
+      .prepare(
+        "SELECT rowid FROM memory_entries_fts WHERE memory_entries_fts MATCH '\"Acme\"'",
+      )
+      .get() as { rowid: number } | undefined;
+
+    expect(hit).toBeDefined();
+    db.close();
+  });
+
+  it("DELETE trigger: deleted row is no longer found via FTS MATCH", async () => {
+    const { openDatabase } = await import("../src/db.ts");
+    const db = openDatabase(tempDbPath());
+
+    db.prepare(
+      "INSERT INTO memory_entries (date, body, char_count, created_at) VALUES (?, ?, ?, ?)",
+    ).run("2026-05-30", "deletable entry content", 23, "2026-05-30T10:00:00Z");
+
+    const rowId = (
+      db
+        .prepare("SELECT id FROM memory_entries WHERE body = 'deletable entry content'")
+        .get() as { id: number }
+    ).id;
+
+    db.prepare("DELETE FROM memory_entries WHERE id = ?").run(rowId);
+
+    const hit = db
+      .prepare(
+        "SELECT rowid FROM memory_entries_fts WHERE memory_entries_fts MATCH '\"deletable\"'",
+      )
+      .get() as { rowid: number } | undefined;
+
+    expect(hit).toBeUndefined();
+    db.close();
+  });
+});
+
+// --- SPEC-SCHEMA-4 — v2→v3 additive migration --------------------------------
+describe("v2→v3 migration (SPEC-SCHEMA-4)", () => {
+  it("migrates a v2 DB to v3 transparently: meta bumped + memory_entries added", async () => {
+    const { default: Database } = await import("../src/sqlite-shim.ts");
+    const path = tempDbPath();
+
+    // Seed a v2-equivalent DB by hand (with v2 tables but schema_version='2')
+    const seedDb = new Database(path);
+    seedDb.pragma("journal_mode=WAL");
+    seedDb.exec(`
+      CREATE TABLE IF NOT EXISTS _meta (
+        key   TEXT NOT NULL PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '2');
+
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT NOT NULL PRIMARY KEY,
+        session_key TEXT NOT NULL UNIQUE,
+        source_platform TEXT NOT NULL,
+        model_config TEXT NOT NULL,
+        pi_session_path TEXT,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        end_reason TEXT,
+        parent_session_id TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        session_key TEXT NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        tool_name TEXT,
+        timestamp TEXT NOT NULL
+      );
+    `);
+    seedDb.close();
+
+    // Open with v3 code — should migrate silently
+    const { openDatabase } = await import("../src/db.ts");
+    const db = openDatabase(path);
+
+    const metaRow = db
+      .prepare("SELECT value FROM _meta WHERE key = 'schema_version'")
+      .get() as { value: string } | undefined;
+    expect(metaRow?.value).toBe("3");
+
+    const memTable = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='memory_entries'",
+      )
+      .get() as { name: string } | undefined;
+    expect(memTable?.name).toBe("memory_entries");
+
+    db.close();
+  });
+});
+
+// --- SPEC-SCHEMA-5 — existing v2 rows survive migration ----------------------
+describe("v2 data survival (SPEC-SCHEMA-5)", () => {
+  it("existing sessions and messages rows survive v2→v3 migration", async () => {
+    const { default: Database } = await import("../src/sqlite-shim.ts");
+    const path = tempDbPath();
+
+    // Seed a v2-equivalent DB with some rows
+    const seedDb = new Database(path);
+    seedDb.pragma("journal_mode=WAL");
+    seedDb.exec(`
+      CREATE TABLE IF NOT EXISTS _meta (
+        key   TEXT NOT NULL PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '2');
+
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT NOT NULL PRIMARY KEY,
+        session_key TEXT NOT NULL UNIQUE,
+        source_platform TEXT NOT NULL,
+        model_config TEXT NOT NULL,
+        pi_session_path TEXT,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        end_reason TEXT,
+        parent_session_id TEXT
+      );
+      INSERT INTO sessions (id, session_key, source_platform, model_config, started_at)
+        VALUES ('sess-1', 'key-1', 'test', '{}', '2026-05-30T00:00:00Z');
+
+      CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        session_key TEXT NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        tool_name TEXT,
+        timestamp TEXT NOT NULL
+      );
+      INSERT INTO messages (session_key, role, content, timestamp)
+        VALUES ('key-1', 'user', 'hello from v2', '2026-05-30T00:01:00Z');
+
+      CREATE TABLE IF NOT EXISTS audit_entries (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        tool_call_id TEXT NOT NULL,
+        tool_name TEXT NOT NULL,
+        risk_level TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        approver TEXT,
+        input TEXT NOT NULL,
+        output TEXT,
+        error TEXT
+      );
+      INSERT INTO audit_entries (timestamp, tool_call_id, tool_name, risk_level, decision, input)
+        VALUES ('2026-05-30T00:02:00Z', 'tc-1', 'read_file', 'trivial', 'approved', '{}');
+    `);
+    seedDb.close();
+
+    // Open with v3 code — existing rows must survive
+    const { openDatabase } = await import("../src/db.ts");
+    const db = openDatabase(path);
+
+    const session = db
+      .prepare("SELECT id FROM sessions WHERE id = 'sess-1'")
+      .get() as { id: string } | undefined;
+    expect(session?.id).toBe("sess-1");
+
+    const msg = db
+      .prepare("SELECT content FROM messages WHERE session_key = 'key-1'")
+      .get() as { content: string } | undefined;
+    expect(msg?.content).toBe("hello from v2");
+
+    const audit = db
+      .prepare("SELECT tool_call_id FROM audit_entries WHERE tool_call_id = 'tc-1'")
+      .get() as { tool_call_id: string } | undefined;
+    expect(audit?.tool_call_id).toBe("tc-1");
+
+    db.close();
   });
 });
