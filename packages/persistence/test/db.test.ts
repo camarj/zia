@@ -129,7 +129,7 @@ describe("openDatabase schema (SC-02, SC-03, SPEC-R11)", () => {
     db.close();
   });
 
-  it("records schema_version = '3' in _meta (SC-03, updated for v3)", async () => {
+  it("records schema_version = '4' in _meta (SC-03, updated for v4)", async () => {
     const { openDatabase } = await import("../src/db.ts");
     const db = openDatabase(tempDbPath());
 
@@ -137,7 +137,7 @@ describe("openDatabase schema (SC-02, SC-03, SPEC-R11)", () => {
       .prepare("SELECT value FROM _meta WHERE key = 'schema_version'")
       .get() as { value: string } | undefined;
 
-    expect(row?.value).toBe("3");
+    expect(row?.value).toBe("4");
     db.close();
   });
 });
@@ -158,15 +158,15 @@ describe("openDatabase version gate (SC-04, SPEC-R6)", () => {
 
     // Now openDatabase should throw the version gate error
     const { openDatabase } = await import("../src/db.ts");
-    expect(() => openDatabase(path)).toThrow(/schema version 99 > expected 3/);
+    expect(() => openDatabase(path)).toThrow(/schema version 99 > expected 4/);
   });
 });
 
-// --- SPEC-SCHEMA-1 — SCHEMA_VERSION constant is 3 ---------------------------
+// --- SPEC-SCHEMA-1 — SCHEMA_VERSION constant is 4 ---------------------------
 describe("SCHEMA_VERSION constant (SPEC-SCHEMA-1)", () => {
-  it("SCHEMA_VERSION === 3", async () => {
+  it("SCHEMA_VERSION === 4", async () => {
     const { SCHEMA_VERSION } = await import("../src/schema.ts");
-    expect(SCHEMA_VERSION).toBe(3);
+    expect(SCHEMA_VERSION).toBe(4);
   });
 });
 
@@ -200,7 +200,7 @@ describe("memory_entries tables (SPEC-SCHEMA-2)", () => {
     db.close();
   });
 
-  it("records _meta.schema_version = '3' on fresh open", async () => {
+  it("records _meta.schema_version = '4' on fresh open", async () => {
     const { openDatabase } = await import("../src/db.ts");
     const db = openDatabase(tempDbPath());
 
@@ -208,7 +208,7 @@ describe("memory_entries tables (SPEC-SCHEMA-2)", () => {
       .prepare("SELECT value FROM _meta WHERE key = 'schema_version'")
       .get() as { value: string } | undefined;
 
-    expect(row?.value).toBe("3");
+    expect(row?.value).toBe("4");
     db.close();
   });
 });
@@ -280,7 +280,7 @@ describe("memory_entries FTS triggers (SPEC-SCHEMA-3)", () => {
 
 // --- SPEC-SCHEMA-4 — v2→v3 additive migration --------------------------------
 describe("v2→v3 migration (SPEC-SCHEMA-4)", () => {
-  it("migrates a v2 DB to v3 transparently: meta bumped + memory_entries added", async () => {
+  it("migrates a v2 DB to current schema transparently: meta bumped + memory_entries added", async () => {
     const { default: Database } = await import("../src/sqlite-shim.ts");
     const path = tempDbPath();
 
@@ -317,14 +317,14 @@ describe("v2→v3 migration (SPEC-SCHEMA-4)", () => {
     `);
     seedDb.close();
 
-    // Open with v3 code — should migrate silently
+    // Open with current code — should migrate silently to the latest version
     const { openDatabase } = await import("../src/db.ts");
     const db = openDatabase(path);
 
     const metaRow = db
       .prepare("SELECT value FROM _meta WHERE key = 'schema_version'")
       .get() as { value: string } | undefined;
-    expect(metaRow?.value).toBe("3");
+    expect(metaRow?.value).toBe("4");
 
     const memTable = db
       .prepare(
@@ -332,6 +332,114 @@ describe("v2→v3 migration (SPEC-SCHEMA-4)", () => {
       )
       .get() as { name: string } | undefined;
     expect(memTable?.name).toBe("memory_entries");
+
+    db.close();
+  });
+});
+
+// --- SPEC-LINEAGE-1 — parent_session_id column is queryable --------------------
+describe("Schema v4 — parent_session_id column (SPEC-LINEAGE-1)", () => {
+  it("parent_session_id column exists and is queryable on a fresh v4 DB", async () => {
+    const { openDatabase } = await import("../src/db.ts");
+    const db = openDatabase(tempDbPath());
+
+    // Should not throw — column exists
+    expect(() => {
+      db.prepare("SELECT parent_session_id FROM sessions WHERE id = ?").get("nonexistent");
+    }).not.toThrow();
+
+    db.close();
+  });
+});
+
+// --- SPEC-LINEAGE-2 — idx_sessions_parent_session_id index exists in v4 ------
+describe("Schema v4 — lineage index (SPEC-LINEAGE-2)", () => {
+  it("creates idx_sessions_parent_session_id index on fresh open", async () => {
+    const { openDatabase } = await import("../src/db.ts");
+    const db = openDatabase(tempDbPath());
+
+    const row = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_sessions_parent_session_id'",
+      )
+      .get() as { name: string } | undefined;
+
+    expect(row?.name).toBe("idx_sessions_parent_session_id");
+    db.close();
+  });
+
+  it("records schema_version = '4' on a fresh v4 open", async () => {
+    const { openDatabase } = await import("../src/db.ts");
+    const db = openDatabase(tempDbPath());
+
+    const row = db
+      .prepare("SELECT value FROM _meta WHERE key = 'schema_version'")
+      .get() as { value: string } | undefined;
+
+    expect(row?.value).toBe("4");
+    db.close();
+  });
+});
+
+// --- SPEC-LINEAGE-3 — v3→v4 silent migration ---------------------------------
+describe("v3→v4 migration (SPEC-LINEAGE-3)", () => {
+  it("opens a v3 DB, bumps schema_version to '4', and adds lineage index", async () => {
+    const { default: Database } = await import("../src/sqlite-shim.ts");
+    const path = tempDbPath();
+
+    // Seed a v3-equivalent DB by hand (no idx_sessions_parent_session_id)
+    const seedDb = new Database(path);
+    seedDb.pragma("journal_mode=WAL");
+    seedDb.exec(`
+      CREATE TABLE IF NOT EXISTS _meta (
+        key   TEXT NOT NULL PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '3');
+
+      CREATE TABLE IF NOT EXISTS sessions (
+        id                TEXT NOT NULL PRIMARY KEY,
+        session_key       TEXT NOT NULL UNIQUE,
+        source_platform   TEXT NOT NULL,
+        model_config      TEXT NOT NULL,
+        pi_session_path   TEXT,
+        started_at        TEXT NOT NULL,
+        ended_at          TEXT,
+        end_reason        TEXT,
+        parent_session_id TEXT
+      );
+    `);
+
+    // Seed a session row to verify data survival
+    seedDb.prepare(`
+      INSERT INTO sessions (id, session_key, source_platform, model_config, started_at)
+      VALUES ('v3-sess-1', 'agent:main:tui:dm:v3test', 'tui', '{}', '2026-01-01T00:00:00Z')
+    `).run();
+    seedDb.close();
+
+    // Open with v4 code — should migrate silently
+    const { openDatabase } = await import("../src/db.ts");
+    const db = openDatabase(path);
+
+    // schema_version must be '4'
+    const metaRow = db
+      .prepare("SELECT value FROM _meta WHERE key = 'schema_version'")
+      .get() as { value: string } | undefined;
+    expect(metaRow?.value).toBe("4");
+
+    // idx_sessions_parent_session_id must exist
+    const indexRow = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_sessions_parent_session_id'",
+      )
+      .get() as { name: string } | undefined;
+    expect(indexRow?.name).toBe("idx_sessions_parent_session_id");
+
+    // Pre-existing session row must survive
+    const sessionRow = db
+      .prepare("SELECT id FROM sessions WHERE id = 'v3-sess-1'")
+      .get() as { id: string } | undefined;
+    expect(sessionRow?.id).toBe("v3-sess-1");
 
     db.close();
   });
