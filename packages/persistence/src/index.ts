@@ -17,6 +17,8 @@ export {
   DDL_MEMORY_FTS,
   DDL_MEMORY_FTS_TRIGGERS,
   DDL_SESSIONS_LINEAGE_INDEX,
+  DDL_MONTHLY_SPEND,
+  DDL_MONTHLY_SPEND_INDEX,
 } from "./schema.ts";
 export { SessionStore, buildSessionKey } from "./session-store.ts";
 export { SqliteAuditLog } from "./audit-store.ts";
@@ -24,3 +26,5 @@ export type { SearchableAuditLog } from "./audit-store.ts";
 export type { SessionRecord, SessionKeyParts } from "./types.ts";
 export { SqliteMessageStore } from "./message-store.ts";
 export type { MessageStore, SessionMessageRecord, MessageSearchHit } from "./message-store.ts";
+export { createMonthlySpendStore } from "./monthly-spend-store.ts";
+export type { MonthlySpendStore } from "./monthly-spend-store.ts";

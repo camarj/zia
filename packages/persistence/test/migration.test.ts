@@ -129,7 +129,7 @@ describe("Schema migration — fresh open (SPEC-F4-1)", () => {
       .get() as { value: string } | undefined;
 
     expect(row).toBeDefined();
-    expect(row!.value).toBe("4");
+    expect(row!.value).toBe("5");
 
     db.close();
   });
@@ -188,7 +188,7 @@ describe("Schema migration — v1→v4 upgrade (SPEC-F4-1, SPEC-F4-2, SPEC-SCHEM
       .prepare("SELECT value FROM _meta WHERE key='schema_version'")
       .get() as { value: string } | undefined;
 
-    expect(row!.value).toBe("4");
+    expect(row!.value).toBe("5");
 
     db.close();
   });
@@ -295,7 +295,7 @@ describe("Schema migration — v3→v4 upgrade (SPEC-LINEAGE-3)", () => {
       .prepare("SELECT value FROM _meta WHERE key='schema_version'")
       .get() as { value: string } | undefined;
 
-    expect(row!.value).toBe("4");
+    expect(row!.value).toBe("5");
 
     db.close();
   });
