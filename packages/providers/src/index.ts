@@ -4,6 +4,7 @@ export { resolveModelFromFicha } from "./resolver.ts";
 export { isOAuthProvider, OAUTH_PROVIDER_IDS } from "./oauth.ts";
 export type { OAuthProviderId } from "./oauth.ts";
 export type {
+  CacheRetention,
   FichaLlmDeclaration,
   KnownProvider,
   Model,
