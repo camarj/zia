@@ -25,6 +25,13 @@ import {
 import { findProvider, isOAuthProvider, readFichaLlm, resolveModelFromFicha } from "@zia/providers";
 
 import { buildPromptFromFicha } from "./prompt-builder.ts";
+import {
+  applyCacheRetention,
+  assessCacheEligibility,
+  DEFAULT_CACHE_RETENTION,
+  type CacheEligibility,
+  type CacheRetention,
+} from "./cache.ts";
 
 type ThinkingLevel = "off" | "low" | "medium" | "high";
 
@@ -112,6 +119,18 @@ export interface ZiaAgentHandle {
    * gated call returns a clear "No approval channel attached" error result.
    */
   queue: ApprovalQueue;
+  /**
+   * Prompt-caching state for this agent (F-CORE-7).
+   *
+   * `retention` is the TTL applied to pi.dev's PI_CACHE_RETENTION lever;
+   * `eligibility` reports whether the frozen system prompt will actually benefit
+   * from Anthropic prompt caching. Exposed so the /status control command and
+   * tests can surface cache configuration without driving a live turn.
+   */
+  cache: {
+    retention: CacheRetention;
+    eligibility: CacheEligibility;
+  };
 }
 
 const DEFAULT_THINKING_LEVEL: ThinkingLevel = "medium";
@@ -122,7 +141,20 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
   const declaration = await readFichaLlm(opts.fichaDir);
   const model = await resolveModelFromFicha(opts.fichaDir, process.env);
 
+  // The system prompt is built ONCE here and captured by the
+  // systemPromptOverride closure below. That freeze is deliberate (F-CORE-7 +
+  // Block 2 frozen-snapshot, ADR-M7): the stable prefix must be byte-identical
+  // across every turn or Anthropic's auto-placed cache_control breakpoint misses.
+  // Mid-session memory writes hit disk but are not re-read until the next session.
   const systemPrompt = await buildPromptFromFicha(opts.fichaDir);
+
+  // F-CORE-7 prompt caching: pi.dev auto-applies the Anthropic cache_control
+  // breakpoint; zia configures the TTL lever (validated upstream in the ficha
+  // schema) and validates that the frozen prompt is actually cache-eligible.
+  const cacheRetention: CacheRetention =
+    declaration.cacheRetention ?? DEFAULT_CACHE_RETENTION;
+  applyCacheRetention(cacheRetention);
+  const cacheEligibility = assessCacheEligibility(declaration.provider, systemPrompt);
 
   const authStorage = AuthStorage.create();
   if (isOAuthProvider(declaration.provider)) {
@@ -250,5 +282,9 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
     sessionManager: opts.sessionManager ?? SessionManager.create(cwd),
   });
 
-  return { runtime, queue };
+  return {
+    runtime,
+    queue,
+    cache: { retention: cacheRetention, eligibility: cacheEligibility },
+  };
 }

@@ -76,6 +76,48 @@ describe("readFichaLlm", () => {
     await expect(readFichaLlm(dir)).rejects.toThrow(/llm\.default/);
   });
 
+  it("parses llm.cacheRetention (F-CORE-7) at the llm level", async () => {
+    const dir = await makeFicha(`llm:
+  cacheRetention: long
+  default:
+    provider: anthropic
+    model: claude-sonnet-4-6
+`);
+    const result = await readFichaLlm(dir);
+    expect(result.cacheRetention).toBe("long");
+  });
+
+  it("accepts snake_case cache_retention", async () => {
+    const dir = await makeFicha(`llm:
+  cache_retention: short
+  default:
+    provider: anthropic
+    model: claude-sonnet-4-6
+`);
+    const result = await readFichaLlm(dir);
+    expect(result.cacheRetention).toBe("short");
+  });
+
+  it("leaves cacheRetention undefined when absent", async () => {
+    const dir = await makeFicha(`llm:
+  default:
+    provider: anthropic
+    model: claude-sonnet-4-6
+`);
+    const result = await readFichaLlm(dir);
+    expect(result.cacheRetention).toBeUndefined();
+  });
+
+  it("rejects when cacheRetention is not one of the enum values", async () => {
+    const dir = await makeFicha(`llm:
+  cacheRetention: forever
+  default:
+    provider: anthropic
+    model: claude-sonnet-4-6
+`);
+    await expect(readFichaLlm(dir)).rejects.toThrow(/cacheRetention/);
+  });
+
   it("rejects when thinkingLevel is not one of the enum values", async () => {
     const dir = await makeFicha(`llm:
   default:
