@@ -122,10 +122,23 @@ export async function resolveModelFromFicha(
 // ---------------------------------------------------------------------------
 
 /** Return type: one entry per llm.available[] entry (or the default model
- * as a single-entry fallback), with the pi.dev Model and thinkingLevel. */
+ * as a single-entry fallback), with the pi.dev Model and thinkingLevel.
+ *
+ * S-1 decision (PR3): `label` and `modelId` are added here so PR4's
+ * `ControlCommandsExtensionOpts.availableModels` can consume them directly
+ * without re-deriving from `model.id`. The addition is strictly additive —
+ * the spec contract (SPEC-MODELS-1) only mandates `{model, thinkingLevel?}`,
+ * and extra fields on a return type are always backward-compatible.
+ */
 export type ResolvedModelEntry = {
   model: Model<any>;
   thinkingLevel?: "off" | "low" | "medium" | "high";
+  /** Human-friendly label from llm.available[].label (undefined for the
+   * single-entry fallback when no llm.available is declared). */
+  label?: string;
+  /** Model identifier string (mirrors FichaModelEntry.modelId). For the
+   * single-entry fallback this is derived from the resolved model's id. */
+  modelId: string;
 };
 
 /**
@@ -163,9 +176,26 @@ export async function resolveAvailableModels(
 
   // SPEC-MODELS-1-C / EC-11: absent or empty available[] → single-entry fallback
   if (!available || available.length === 0) {
-    const defaultModel = await resolveModelFromFicha(fichaDir, env);
     const declaration = await readFichaLlm(fichaDir);
-    return [{ model: defaultModel, thinkingLevel: declaration.thinkingLevel }];
+    // OAuth providers: verify auth.json exists before building the session,
+    // matching the fail-fast contract that was previously in agent.ts. Without
+    // this check, an OAuth ficha with no llm.available would silently proceed
+    // and fail deep inside the first LLM call with a cryptic error.
+    if (isOAuthProvider(declaration.provider)) {
+      if (!authStorage.hasAuth(declaration.provider)) {
+        throw new ZiaConfigError(
+          `zia: no OAuth credentials found for "${declaration.provider}". ` +
+            `Run \`pnpm --filter @zia/agent-runtime model ${fichaDir}\` to authenticate.`,
+        );
+      }
+    }
+    const defaultModel = await resolveModelFromFicha(fichaDir, env);
+    return [{
+      model: defaultModel,
+      thinkingLevel: declaration.thinkingLevel,
+      modelId: declaration.modelId,
+      label: undefined,
+    }];
   }
 
   const results: ResolvedModelEntry[] = [];
@@ -201,7 +231,12 @@ export async function resolveAvailableModels(
     // vLLM, LiteLLM) handle auth at the endpoint level: no registration, no
     // check, no error (SPEC-MODELS-1-D).
 
-    results.push({ model, thinkingLevel: entry.thinkingLevel });
+    results.push({
+      model,
+      thinkingLevel: entry.thinkingLevel,
+      label: entry.label,
+      modelId: entry.modelId,
+    });
   }
 
   return results;

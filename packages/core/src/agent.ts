@@ -22,7 +22,11 @@ import {
   type WrappableTool,
   wrapToolsWithApproval,
 } from "@zia/callbacks";
-import { findProvider, isOAuthProvider, readFichaLlm, resolveModelFromFicha } from "@zia/providers";
+import {
+  readFichaLlm,
+  resolveAvailableModels,
+  type ResolvedModelEntry,
+} from "@zia/providers";
 
 import { buildPromptFromFicha } from "./prompt-builder.ts";
 import {
@@ -108,6 +112,19 @@ export interface CreateZiaAgentOptions {
 export interface ZiaAgentHandle {
   runtime: AgentSessionRuntime;
   /**
+   * Resolved models from llm.available[] (or the single-entry fallback when
+   * llm.available is absent). Populated by resolveAvailableModels() before
+   * the session runtime is created, so every model is pre-authenticated.
+   *
+   * Passed to the pi.dev session as `scopedModels`, enabling:
+   *  - Ctrl+P cycling in TUI mode
+   *  - RPC set_model / cycle_model commands
+   *  - PR4's /model slash command (reads this array for the picker list)
+   *
+   * SPEC-SCOPED-1: readonly — callers inspect but never mutate this array.
+   */
+  readonly scopedModels: ReadonlyArray<ResolvedModelEntry>;
+  /**
    * The live approval queue for this agent.
    *
    * Exposed so entry points (tui-runner.ts, rpc-runner.ts) can bind a resolver
@@ -139,7 +156,6 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
   // Read ficha declaration first so we can register the credential against
   // pi.dev's AuthStorage before any session is created.
   const declaration = await readFichaLlm(opts.fichaDir);
-  const model = await resolveModelFromFicha(opts.fichaDir, process.env);
 
   // The system prompt is built ONCE here and captured by the
   // systemPromptOverride closure below. That freeze is deliberate (F-CORE-7 +
@@ -157,31 +173,34 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
   const cacheEligibility = assessCacheEligibility(declaration.provider, systemPrompt);
 
   const authStorage = AuthStorage.create();
-  if (isOAuthProvider(declaration.provider)) {
-    // OAuth providers (github-copilot, openai-codex) keep their credentials in
-    // auth.json, loaded automatically by AuthStorage.create(). Fail early with
-    // an actionable hint if the user never authenticated — otherwise the error
-    // surfaces deep inside the first LLM call as a cryptic "unauthorized".
-    if (!authStorage.hasAuth(declaration.provider)) {
-      throw new Error(
-        `zia: no OAuth credentials found for "${declaration.provider}". ` +
-          `Run \`pnpm --filter @zia/agent-runtime model ${opts.fichaDir}\` to authenticate.`,
-      );
-    }
-  } else if (declaration.provider !== "custom") {
-    // "custom" endpoints handle auth themselves; everything else is an api-key
-    // provider whose key comes from an env var.
-    const credentialEnv = declaration.credentialEnv ?? findProvider(declaration.provider)?.credentialEnv;
-    const value = credentialEnv ? process.env[credentialEnv] : undefined;
-    if (credentialEnv && value) {
-      // Cast: the resolver already validated the provider key is in the catalog;
-      // AuthStorage.setRuntimeApiKey takes a KnownProvider literal.
-      authStorage.setRuntimeApiKey(declaration.provider as never, value);
-    }
-  }
-  const modelRegistry = ModelRegistry.create(authStorage);
 
-  const thinkingLevel = opts.thinkingLevel ?? declaration.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
+  // ---------------------------------------------------------------------------
+  // F-CORE-9: resolve all models from llm.available[] BEFORE creating the
+  // session runtime, so every model's credentials are registered into
+  // authStorage and set_model / cycle_model never fail for lack of auth at
+  // runtime (SPEC-SCOPED-1, SPEC-MODELS-1).
+  //
+  // resolveAvailableModels handles:
+  //  - credential registration (authStorage.setRuntimeApiKey) for api-key providers
+  //  - OAuth hasAuth check with a ZiaConfigError on missing login
+  //  - single-entry fallback when llm.available is absent/empty (SPEC-MODELS-1-C)
+  //
+  // The legacy single-model auth block that was here is replaced by this call.
+  // We still read the declaration above for cacheRetention + cacheEligibility.
+  // ---------------------------------------------------------------------------
+  const resolvedModels: ResolvedModelEntry[] = await resolveAvailableModels(
+    opts.fichaDir,
+    process.env,
+    authStorage,
+  );
+
+  // resolvedModels is guaranteed non-empty by resolveAvailableModels (fallback
+  // ensures at least one entry). The first entry is the session default.
+  const defaultEntry = resolvedModels[0]!;
+  const model = defaultEntry.model;
+  const thinkingLevel = opts.thinkingLevel ?? defaultEntry.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
+
+  const modelRegistry = ModelRegistry.create(authStorage);
 
   // ---------------------------------------------------------------------------
   // Governance gate composition (AQ-12, design §agent.ts wiring)
@@ -258,6 +277,11 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
         sessionStartEvent,
         model,
         thinkingLevel,
+        // F-CORE-9: pass all resolved models so pi.dev can cycle through them
+        // via Ctrl+P (TUI), RPC set_model, and RPC cycle_model (SPEC-SCOPED-1).
+        // resolvedModels is captured from the outer scope (closure over the
+        // resolved array created before this factory runs).
+        scopedModels: resolvedModels,
         // F-CORE-1 fix: suppress pi.dev's native builtins (read/bash/edit/write —
         // they are coding-agent tools that would BYPASS the governance gate),
         // while keeping our gate-wrapped customTools active. `tools: []` does NOT
@@ -294,5 +318,6 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
     runtime,
     queue,
     cache: { retention: cacheRetention, eligibility: cacheEligibility },
+    scopedModels: resolvedModels,
   };
 }
