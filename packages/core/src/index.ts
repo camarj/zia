@@ -12,7 +12,10 @@ export {
 } from "./cache.ts";
 export type { CacheRetention, CacheEligibility } from "./cache.ts";
 export { runZiaAgentTui } from "./tui-runner.ts";
+export type { RunZiaAgentTuiOptions } from "./tui-runner.ts";
 export { runZiaAgentPrint } from "./print-runner.ts";
 export type { RunZiaAgentPrintOptions } from "./print-runner.ts";
 export { messagePersistExtension } from "./message-persist-extension.ts";
 export type { MessageSink } from "./message-persist-extension.ts";
+export { createBudgetEnforcementExtension } from "./budget-extension.ts";
+export type { BudgetEnforcementExtensionOpts, MonthlySpendStore } from "./budget-extension.ts";

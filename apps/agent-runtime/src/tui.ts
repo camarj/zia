@@ -7,7 +7,7 @@ import { parse as parseYaml } from "yaml";
 
 import { messagePersistExtension, runZiaAgentTui } from "@zia/core";
 import { FileBasedMemoryProvider, SqliteFtsMemoryProvider } from "@zia/memory";
-import { openDatabase, SqliteAuditLog, SqliteMessageStore } from "@zia/persistence";
+import { createMonthlySpendStore, openDatabase, SqliteAuditLog, SqliteMessageStore } from "@zia/persistence";
 import { createBuiltinTools, createMcpAdapter } from "@zia/tools";
 
 async function main(): Promise<void> {
@@ -78,6 +78,10 @@ async function main(): Promise<void> {
     db = openDatabase(join(fichaDir, "zia.db"));
     const auditLog = new SqliteAuditLog(db);
 
+    // F-CORE-8: monthly spend store for budget enforcement (SPEC-EXT-2).
+    // Created from the same db handle as SqliteAuditLog — one DB per agent.
+    const monthlySpendStore = createMonthlySpendStore(db);
+
     // B.4: MessageStore + builtin tools + message-persist extension wiring.
     // sessionKey identifies this TUI session in the messages table. Gateway
     // slice will supply real per-session keys; a single TUI session is correct here.
@@ -119,11 +123,13 @@ async function main(): Promise<void> {
     });
 
     // SPEC-API-3: rawTools = MCP tools + builtin tools; auditLog + extensionFactories wired.
+    // F-CORE-8: monthlySpendStore injected for budget enforcement (SPEC-EXT-2).
     await runZiaAgentTui({
       fichaDir,
       rawTools: [...handle.tools, ...builtinTools],
       auditLog,
       extensionFactories: [messagePersistExtension(messageStore, sessionKey)],
+      monthlySpendStore,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

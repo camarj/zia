@@ -68,10 +68,20 @@ const mockAuditLog = {};
 
 const mockOpenDatabase = vi.fn().mockReturnValue({ close: mockDbClose });
 
+// F-CORE-8: stable singleton so tests can assert the exact instance is forwarded.
+const mockMonthlySpendStore = {
+  accumulate: vi.fn(),
+  getSpend: vi.fn().mockReturnValue(0),
+  getSpendOrThrow: vi.fn().mockReturnValue(0),
+};
+const mockCreateMonthlySpendStore = vi.fn().mockReturnValue(mockMonthlySpendStore);
+
 vi.mock("@zia/persistence", () => ({
   openDatabase: mockOpenDatabase,
   SqliteAuditLog: vi.fn().mockImplementation(() => mockAuditLog),
   SqliteMessageStore: vi.fn().mockImplementation(() => mockMessageStore),
+  // F-CORE-8: budget store wiring (SPEC-EXT-2).
+  createMonthlySpendStore: mockCreateMonthlySpendStore,
 }));
 
 // ---------------------------------------------------------------------------
@@ -98,6 +108,7 @@ describe("tui.ts composition root wiring (B.5, SPEC-F4-8)", () => {
     mockExtensionFactory.mockClear();
     mockDbClose.mockClear();
     mockOpenDatabase.mockClear();
+    mockCreateMonthlySpendStore.mockClear();
     mockMessageStore.search.mockClear();
     mockMessageStore.record.mockClear();
 
@@ -155,6 +166,18 @@ describe("tui.ts composition root wiring (B.5, SPEC-F4-8)", () => {
     expect(Array.isArray(factories)).toBe(true);
     // The returned factory from messagePersistExtension must be present
     expect(factories).toContain(mockExtensionFactory);
+  });
+
+  it("creates the monthly spend store and forwards it to runZiaAgentTui (W-2 / SPEC-EXT-2)", async () => {
+    process.argv = ["node", "tui.ts", "agents/_template"];
+
+    await import("../src/tui.ts");
+
+    // Created from the same db handle as the audit log.
+    expect(mockCreateMonthlySpendStore).toHaveBeenCalledOnce();
+    // The exact store instance must reach the runner.
+    const opts = mockRunZiaAgentTui.mock.calls[0]![0] as Record<string, unknown>;
+    expect(opts["monthlySpendStore"]).toBe(mockMonthlySpendStore);
   });
 
   it("spreads both MCP tools and builtin tools into rawTools", async () => {
