@@ -89,7 +89,7 @@ describe("createZiaAgent — ficha-driven configuration", () => {
     );
 
     await expect(createZiaAgent({ fichaDir })).rejects.toThrow(
-      /no OAuth credentials found for "github-copilot".*to authenticate/s,
+      /github-copilot.*needs an OAuth login.*agent-runtime model.*to authenticate/s,
     );
   });
 });
