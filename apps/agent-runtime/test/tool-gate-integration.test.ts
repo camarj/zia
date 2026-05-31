@@ -10,8 +10,11 @@
  *  - bash  → alto → approval required (SPEC-P-2 alto path)
  *  - unknown_tool → alto (default-deny, SPEC-P-3)
  *
- * SPEC-F1-7 "tools: [] stays unchanged in agent.ts" is verified via a source
- * content assertion — no network/credentials needed.
+ * SPEC-F1-7 "pi.dev native builtins stay suppressed in agent.ts" is verified via
+ * a source content assertion — no network/credentials needed. The mechanism is
+ * `noTools: "builtin"` (drops native read/bash/edit/write that would bypass the
+ * gate, keeps gate-wrapped customTools) — NOT `tools: []`, which is a truthy
+ * zero-tool allowlist that wrongly filters out customTools too.
  *
  * SPEC-F1-6 "every builtin flows through wrapToolsWithApproval" is demonstrated
  * by showing that read and bash both produce audit records (they passed through
@@ -256,21 +259,43 @@ describe("SPEC-F1-6 — all tools produce audit records (passed through gate)", 
 });
 
 // ---------------------------------------------------------------------------
-// SPEC-F1-7 — tools: [] stays unchanged in agent.ts
+// SPEC-F1-7 — pi.dev native builtins suppressed in agent.ts
 //
-// Source-level assertion: grep the compiled/source agent.ts for `tools: []`.
-// This is a structural invariant — pi.dev native builtins MUST remain suppressed.
+// Source-level assertion: the agent must suppress pi.dev's native builtins
+// (read/bash/edit/write — they would bypass the governance gate) via
+// `noTools: "builtin"`, while keeping its gate-wrapped customTools active.
+// This is a structural invariant.
+//
+// It must NOT use `tools: []` — that is a truthy zero-tool allowlist that pi.dev
+// applies to customTools too, filtering EVERYTHING out, so the model receives no
+// tools and emits no tool calls. (Root cause of the empty-tools smoke-test bug.)
 // ---------------------------------------------------------------------------
 
-describe("SPEC-F1-7 — tools: [] in agent.ts (pi.dev native builtins suppressed)", () => {
-  it("agent.ts source contains 'tools: []' exactly", async () => {
-    // Resolve relative to this test file's expected location
+describe("SPEC-F1-7 — native builtins suppressed in agent.ts (noTools: 'builtin')", () => {
+  it("agent.ts source suppresses native builtins via noTools: 'builtin'", async () => {
     const agentPath = resolve(
       new URL(".", import.meta.url).pathname,
       "../../../packages/core/src/agent.ts",
     );
     const source = await readFile(agentPath, "utf8");
-    expect(source).toMatch(/tools:\s*\[\]/);
+    expect(source).toMatch(/noTools:\s*["'`]builtin["'`]/);
+  });
+
+  it("agent.ts does NOT use the buggy `tools: []` zero-allowlist as a session arg", async () => {
+    const agentPath = resolve(
+      new URL(".", import.meta.url).pathname,
+      "../../../packages/core/src/agent.ts",
+    );
+    const source = await readFile(agentPath, "utf8");
+    // `tools: []` kills customTools too — it must never reappear as a session arg.
+    // Match only code lines (ignore explanatory comments/JSDoc that quote the
+    // anti-pattern): a real arg is a trimmed line that is exactly `tools: [],`.
+    const codeToolsEmpty = source
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => !line.startsWith("//") && !line.startsWith("*"))
+      .some((line) => /^tools:\s*\[\],?$/.test(line));
+    expect(codeToolsEmpty).toBe(false);
   });
 
   it("agent.ts does NOT pass any non-empty tools array to createAgentSessionFromServices", async () => {
@@ -279,8 +304,8 @@ describe("SPEC-F1-7 — tools: [] in agent.ts (pi.dev native builtins suppressed
       "../../../packages/core/src/agent.ts",
     );
     const source = await readFile(agentPath, "utf8");
-    // Extract the createAgentSessionFromServices call block and verify tools: []
-    // A simple check: `tools: ["read"` or `tools: ["bash"` etc. must NOT appear
+    // A native-builtin allowlist like `tools: ["read"` must NOT appear — those
+    // would bypass the gate. Only customTools (gate-wrapped) may carry tools.
     expect(source).not.toMatch(/tools:\s*\[["'`]/);
   });
 });
