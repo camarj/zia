@@ -258,7 +258,15 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
         sessionStartEvent,
         model,
         thinkingLevel,
-        tools: [],
+        // F-CORE-1 fix: suppress pi.dev's native builtins (read/bash/edit/write —
+        // they are coding-agent tools that would BYPASS the governance gate),
+        // while keeping our gate-wrapped customTools active. `tools: []` does NOT
+        // do this: an empty array is a truthy allowlist of zero tools, so pi.dev
+        // filters out EVERYTHING including customTools — the model then receives an
+        // empty tools array in the request and emits no tool calls. `noTools:
+        // "builtin"` is the documented option that drops only the native builtins
+        // and leaves extension/custom tools enabled (pi.dev docs/sdk.md).
+        noTools: "builtin",
         // AQ-12: customTools receives ONLY the gate-wrapped array.
         // The raw tool array (rawTools) is NEVER assigned here directly.
         //
