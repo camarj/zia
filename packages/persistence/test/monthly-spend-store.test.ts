@@ -216,23 +216,25 @@ describe("MonthlySpendStore — year_month boundary UTC (SPEC-SPEND-STORE-1-E)",
     expect(store.getSpend("fin-001", expectedYearMonth)).toBeCloseTo(1.00, 9);
   });
 
-  it("accumulate at UTC 2026-01-31 23:59:59 writes row keyed '2026-01'", async () => {
-    // Simulate the boundary: use explicit yearMonth derived from a fixed UTC timestamp.
-    // Direct Date mock is avoided due to TypeScript complexity; instead we verify
-    // the contract by passing the derived yearMonth explicitly and then confirming
-    // the same derivation logic produces '2026-01' for that timestamp.
-    const boundaryDate = new Date("2026-01-31T23:59:59Z");
-    const derivedYearMonth = boundaryDate.toISOString().slice(0, 7); // must be '2026-01'
-    expect(derivedYearMonth).toBe("2026-01");
+  it("accumulate at UTC 2026-01-31 23:59:59 writes row keyed '2026-01' (default yearMonth path)", async () => {
+    // Freeze the system clock at the UTC month boundary and exercise the DEFAULT
+    // yearMonth path — accumulate() with no yearMonth arg must derive '2026-01'
+    // from the frozen clock, NOT roll into '2026-02'.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-31T23:59:59Z"));
+    try {
+      const store = await makeStore(join(tempDir, "boundary.db"));
 
-    const store = await makeStore(join(tempDir, "boundary.db"));
+      store.accumulate("fin-001", 1.0); // no yearMonth → derived from frozen clock
 
-    // Accumulate explicitly under the boundary month
-    store.accumulate("fin-001", 1.00, derivedYearMonth);
-
-    // The row must be keyed '2026-01', not '2026-02'
-    expect(store.getSpend("fin-001", "2026-01")).toBeCloseTo(1.00, 9);
-    expect(store.getSpend("fin-001", "2026-02")).toBe(0);
+      // The row must be keyed '2026-01', not '2026-02'.
+      expect(store.getSpend("fin-001", "2026-01")).toBeCloseTo(1.0, 9);
+      expect(store.getSpend("fin-001", "2026-02")).toBe(0);
+      // And the default-arg read at the same frozen instant resolves to the same row.
+      expect(store.getSpend("fin-001")).toBeCloseTo(1.0, 9);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("year_month from getSpend default also uses UTC", async () => {

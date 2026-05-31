@@ -4,7 +4,7 @@
  * Covers:
  *   SC-01  WAL mode on file DB
  *   SC-02  All tables + triggers created on first open
- *   SC-03  schema_version = '3' recorded
+ *   SC-03  schema_version = '5' recorded
  *   SC-04  version gate throws when schema_version > SCHEMA_VERSION
  *   SC-16  better-sqlite3 shim loads under ESM without errors
  *   SPEC-R1, R2, R6, R13
