@@ -240,6 +240,48 @@ llm:
     await expect(resolveAvailableModels(dir, {}, auth)).resolves.toBeDefined();
   });
 
+  // SPEC-MODELS-1 (OAuth prose) / EC-6 — OAuth provider (no credentialEnv) gates on hasAuth
+  it("resolves an OAuth entry (no credentialEnv) when AuthStorage already has the token (SPEC-MODELS-1 OAuth)", async () => {
+    const dir = await makeFicha(`
+agent:
+  id: oauth-ok
+llm:
+  default:
+    provider: github-copilot
+    model: gpt-4o
+  available:
+    - provider: github-copilot
+      model: gpt-4o
+      label: "Copilot"
+`);
+    const auth = makeAuthStorage();
+    // Pre-seed the OAuth token as pi.dev's AuthStorage would at session start.
+    auth.setRuntimeApiKey("github-copilot", "oauth-token");
+
+    const result = await resolveAvailableModels(dir, {}, auth);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.model.id).toBe("gpt-4o");
+  });
+
+  it("throws ZiaConfigError for an OAuth entry when AuthStorage has no token (SPEC-MODELS-1 OAuth / EC-6)", async () => {
+    const dir = await makeFicha(`
+agent:
+  id: oauth-missing
+llm:
+  default:
+    provider: github-copilot
+    model: gpt-4o
+  available:
+    - provider: github-copilot
+      model: gpt-4o
+`);
+    const auth = makeAuthStorage();
+    // No token seeded — hasAuth("github-copilot") is false.
+    await expect(resolveAvailableModels(dir, {}, auth)).rejects.toThrow(ZiaConfigError);
+    await expect(resolveAvailableModels(dir, {}, auth)).rejects.toThrow(/github-copilot/);
+    await expect(resolveAvailableModels(dir, {}, auth)).rejects.toThrow(/pi login/);
+  });
+
   // Mixed: anthropic + custom in available[]
   it("registers credentials for api-key entries but skips custom entries in a mixed list", async () => {
     const dir = await makeFicha(`

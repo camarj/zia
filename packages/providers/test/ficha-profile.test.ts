@@ -149,7 +149,9 @@ llm:
     provider: anthropic
     model: claude-sonnet-4-6
 `);
-    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    // Suppress the expected agent.id warning so test output stays clean.
+    // readFichaProfile warns via console.warn (see the dedicated warning test below).
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       const profile = await readFichaProfile(dir);
       expect(profile.agent?.id).toBeUndefined();

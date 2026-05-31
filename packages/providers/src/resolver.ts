@@ -184,10 +184,22 @@ export async function resolveAvailableModels(
         );
       }
       authStorage.setRuntimeApiKey(entry.provider, key);
+    } else if (isOAuthProvider(entry.provider)) {
+      // SPEC-MODELS-1 (OAuth prose) / EC-6: OAuth providers carry no
+      // credentialEnv — their tokens live in pi.dev's AuthStorage (auth.json),
+      // not env vars (engram #556). We do NOT store anything here; we only
+      // verify the token already exists so set_model never fails at runtime
+      // for lack of auth, and surface an actionable error at startup if not.
+      if (!authStorage.hasAuth(entry.provider)) {
+        throw new ZiaConfigError(
+          `zia: provider "${entry.provider}" needs an OAuth login but no credentials were found. ` +
+            `Run \`pi login ${entry.provider}\` inside the agent container to authenticate.`,
+        );
+      }
     }
-    // Custom providers (no credentialEnv) and OAuth providers are skipped —
-    // custom endpoints handle auth at the endpoint level (SPEC-MODELS-1-D);
-    // OAuth tokens are in pi.dev's auth.json, not env vars.
+    // Custom/self-hosted providers (no credentialEnv, not OAuth — e.g. ollama,
+    // vLLM, LiteLLM) handle auth at the endpoint level: no registration, no
+    // check, no error (SPEC-MODELS-1-D).
 
     results.push({ model, thinkingLevel: entry.thinkingLevel });
   }
