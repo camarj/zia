@@ -1,9 +1,44 @@
 import { getModel } from "@earendil-works/pi-ai";
 
 import { findProvider, providerCatalog } from "./catalog.ts";
-import { readFichaLlm } from "./ficha.ts";
+import { readFichaLlm, readFichaProfile } from "./ficha.ts";
 import { isOAuthProvider } from "./oauth.ts";
+import type { FichaModelEntry } from "./ficha.ts";
 import type { KnownProvider, Model } from "./types.ts";
+
+// ---------------------------------------------------------------------------
+// AuthStorageLike — structural interface (SPEC-MODELS-1 / INV-1)
+//
+// @zia/providers must NOT import @earendil-works/pi-coding-agent. Instead we
+// declare the minimal shape of AuthStorage that resolveAvailableModels needs.
+// AuthStorage from pi.dev satisfies this structurally at the call site in
+// @zia/core/agent.ts.
+// ---------------------------------------------------------------------------
+
+export interface AuthStorageLike {
+  setRuntimeApiKey(provider: string, key: string): void;
+  hasAuth(provider: string): boolean;
+}
+
+// ---------------------------------------------------------------------------
+// ZiaConfigError — structured error for actionable config failures (SPEC-MODELS-1-B)
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown by {@link resolveAvailableModels} when a required credential env-var
+ * is missing for a provider that needs an API key. The message always names
+ * the provider and the env-var so the operator knows exactly what to set.
+ */
+export class ZiaConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ZiaConfigError";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// resolveModelFromFicha — existing export, UNCHANGED
+// ---------------------------------------------------------------------------
 
 /**
  * Read `${fichaDir}/profile.yaml`, look up the declared provider in the
@@ -80,6 +115,115 @@ export async function resolveModelFromFicha(
   // exist in pi-ai's MODELS table for the chosen provider, otherwise pi-ai
   // throws at call time.
   return getModel(entry.key as KnownProvider, declaration.modelId as never);
+}
+
+// ---------------------------------------------------------------------------
+// resolveAvailableModels — NEW (SPEC-MODELS-1, PR1)
+// ---------------------------------------------------------------------------
+
+/** Return type: one entry per llm.available[] entry (or the default model
+ * as a single-entry fallback), with the pi.dev Model and thinkingLevel. */
+export type ResolvedModelEntry = {
+  model: Model<any>;
+  thinkingLevel?: "off" | "low" | "medium" | "high";
+};
+
+/**
+ * Resolve all models declared in `llm.available[]` from the ficha into pi.dev
+ * {@link Model} objects, registering API-key credentials into `authStorage`.
+ *
+ * Contract (SPEC-MODELS-1):
+ * - Reads `FichaProfile.llm.available[]`; if absent or empty, falls back to
+ *   `[{ model: defaultModel, thinkingLevel: defaultThinkingLevel }]` — same
+ *   result as pre-PR1 single-model behaviour (SPEC-MODELS-1-C / EC-11).
+ * - For each entry, calls `getModel(provider, modelId)` and registers
+ *   `env[credentialEnv]` into `authStorage.setRuntimeApiKey(provider, key)`
+ *   when `credentialEnv` is present and the env var is set.
+ * - If `credentialEnv` is present but the env var is NOT set → throws
+ *   {@link ZiaConfigError} with an actionable message naming provider + var
+ *   (SPEC-MODELS-1-B).
+ * - Custom/self-hosted providers (no `credentialEnv`): resolved without any
+ *   auth registration (SPEC-MODELS-1-D).
+ * - OAuth providers (no `credentialEnv`): resolved without env-var check;
+ *   pi.dev's AuthStorage handles their token at session start.
+ * - Returns the resolved array in the same order as `llm.available[]`
+ *   (first entry = default model for session start).
+ *
+ * @param fichaDir  - path to the agent ficha directory
+ * @param env       - process.env or test seam
+ * @param authStorage - pi.dev AuthStorage (or compatible mock) to register keys into
+ */
+export async function resolveAvailableModels(
+  fichaDir: string,
+  env: NodeJS.ProcessEnv,
+  authStorage: AuthStorageLike,
+): Promise<ResolvedModelEntry[]> {
+  const profile = await readFichaProfile(fichaDir);
+  const available = profile.llm?.available;
+
+  // SPEC-MODELS-1-C / EC-11: absent or empty available[] → single-entry fallback
+  if (!available || available.length === 0) {
+    const defaultModel = await resolveModelFromFicha(fichaDir, env);
+    const declaration = await readFichaLlm(fichaDir);
+    return [{ model: defaultModel, thinkingLevel: declaration.thinkingLevel }];
+  }
+
+  const results: ResolvedModelEntry[] = [];
+
+  for (const entry of available) {
+    const model = resolveEntryToModel(entry);
+
+    // Register credential into authStorage when a credentialEnv is declared.
+    if (entry.credentialEnv) {
+      const key = env[entry.credentialEnv];
+      if (!key) {
+        // SPEC-MODELS-1-B: missing env var → ZiaConfigError with actionable msg
+        throw new ZiaConfigError(
+          `zia: credential env var "${entry.credentialEnv}" is not set for provider "${entry.provider}". ` +
+            `Set ${entry.credentialEnv} in the agent's .env file or container environment.`,
+        );
+      }
+      authStorage.setRuntimeApiKey(entry.provider, key);
+    } else if (isOAuthProvider(entry.provider)) {
+      // SPEC-MODELS-1 (OAuth prose) / EC-6: OAuth providers carry no
+      // credentialEnv — their tokens live in pi.dev's AuthStorage (auth.json),
+      // not env vars (engram #556). We do NOT store anything here; we only
+      // verify the token already exists so set_model never fails at runtime
+      // for lack of auth, and surface an actionable error at startup if not.
+      if (!authStorage.hasAuth(entry.provider)) {
+        throw new ZiaConfigError(
+          `zia: provider "${entry.provider}" needs an OAuth login but no credentials were found. ` +
+            `Run \`pi login ${entry.provider}\` inside the agent container to authenticate.`,
+        );
+      }
+    }
+    // Custom/self-hosted providers (no credentialEnv, not OAuth — e.g. ollama,
+    // vLLM, LiteLLM) handle auth at the endpoint level: no registration, no
+    // check, no error (SPEC-MODELS-1-D).
+
+    results.push({ model, thinkingLevel: entry.thinkingLevel });
+  }
+
+  return results;
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a pi.dev Model object from a single FichaModelEntry.
+ * For the `custom` sentinel, builds a Model<'openai-completions'> using the
+ * entry's baseUrl (defaults to empty string if absent — callers should validate).
+ */
+function resolveEntryToModel(entry: FichaModelEntry): Model<any> {
+  if (entry.provider === "custom") {
+    return buildCustomModel(entry.modelId, entry.baseUrl ?? "");
+  }
+  // For all catalog providers (api-key and OAuth alike), delegate to pi-ai.
+  // The `provider` string is trusted — invalid providers cause pi-ai to throw
+  // at call time with a clear "unknown model" message.
+  return getModel(entry.provider as KnownProvider, entry.modelId as never);
 }
 
 function buildCustomModel(modelId: string, baseUrl: string): Model<"openai-completions"> {
