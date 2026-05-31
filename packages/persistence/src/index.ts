@@ -26,3 +26,5 @@ export type { SearchableAuditLog } from "./audit-store.ts";
 export type { SessionRecord, SessionKeyParts } from "./types.ts";
 export { SqliteMessageStore } from "./message-store.ts";
 export type { MessageStore, SessionMessageRecord, MessageSearchHit } from "./message-store.ts";
+export { createMonthlySpendStore } from "./monthly-spend-store.ts";
+export type { MonthlySpendStore } from "./monthly-spend-store.ts";
