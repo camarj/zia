@@ -13,23 +13,28 @@
  * SCHEMA_VERSION 4 (additive): adds idx_sessions_parent_session_id index on
  * sessions.parent_session_id — activates the lineage column for compaction
  * tracking (F-CORE-6, SPEC-LINEAGE-2). No existing tables or data modified.
+ *
+ * SCHEMA_VERSION 5 (additive): adds monthly_spend table + idx_monthly_spend_agent
+ * index — stores per-agent monthly LLM cost for budget enforcement (F-CORE-8,
+ * SPEC-SPEND-DDL-1). No existing tables or data modified.
  */
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 // ---------------------------------------------------------------------------
 // SPEC-DDL-1 — _meta table
 // Must be created BEFORE all other tables (schema version gate reads it).
 // v2: seeds '2' on fresh open; upgrades v1 rows to '2' idempotently.
 // v4: seeds '4' on fresh open; upgrades v1/v2/v3 rows to '4' idempotently.
+// v5: seeds '5' on fresh open; upgrades v1/v2/v3/v4 rows to '5' idempotently.
 // ---------------------------------------------------------------------------
 export const DDL_META = `
 CREATE TABLE IF NOT EXISTS _meta (
   key   TEXT NOT NULL PRIMARY KEY,
   value TEXT NOT NULL
 );
-INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '4');
-UPDATE _meta SET value='4' WHERE key='schema_version' AND CAST(value AS INTEGER) < 4;
+INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '5');
+UPDATE _meta SET value='5' WHERE key='schema_version' AND CAST(value AS INTEGER) < 5;
 `.trim();
 
 // ---------------------------------------------------------------------------
@@ -256,4 +261,32 @@ END;
 export const DDL_SESSIONS_LINEAGE_INDEX = `
 CREATE INDEX IF NOT EXISTS idx_sessions_parent_session_id
   ON sessions (parent_session_id);
+`.trim();
+
+// ---------------------------------------------------------------------------
+// SPEC-SPEND-DDL-1 — monthly_spend table (v5 additive)
+// Stores per-agent monthly LLM cost accumulation for budget enforcement
+// (F-CORE-8). PRIMARY KEY (agent_id, year_month) enforces one row per
+// agent per calendar month. year_month is always UTC 'YYYY-MM'.
+// cost_usd uses REAL — sufficient for cent-level precision.
+// CREATE TABLE IF NOT EXISTS — safe to run on both fresh v5 DBs and v4→v5
+// migrations without dropping any existing data.
+// ---------------------------------------------------------------------------
+export const DDL_MONTHLY_SPEND = `
+CREATE TABLE IF NOT EXISTS monthly_spend (
+  agent_id   TEXT NOT NULL,
+  year_month TEXT NOT NULL,
+  cost_usd   REAL NOT NULL DEFAULT 0,
+  PRIMARY KEY (agent_id, year_month)
+);
+`.trim();
+
+// ---------------------------------------------------------------------------
+// SPEC-SPEND-DDL-1 — monthly_spend agent index (v5 additive)
+// Enables efficient per-agent spend lookups without scanning the full table.
+// CREATE INDEX IF NOT EXISTS — idempotent.
+// ---------------------------------------------------------------------------
+export const DDL_MONTHLY_SPEND_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_monthly_spend_agent
+  ON monthly_spend (agent_id);
 `.trim();

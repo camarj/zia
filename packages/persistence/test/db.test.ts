@@ -129,7 +129,7 @@ describe("openDatabase schema (SC-02, SC-03, SPEC-R11)", () => {
     db.close();
   });
 
-  it("records schema_version = '4' in _meta (SC-03, updated for v4)", async () => {
+  it("records schema_version = '5' in _meta (SC-03, updated for v5)", async () => {
     const { openDatabase } = await import("../src/db.ts");
     const db = openDatabase(tempDbPath());
 
@@ -137,7 +137,7 @@ describe("openDatabase schema (SC-02, SC-03, SPEC-R11)", () => {
       .prepare("SELECT value FROM _meta WHERE key = 'schema_version'")
       .get() as { value: string } | undefined;
 
-    expect(row?.value).toBe("4");
+    expect(row?.value).toBe("5");
     db.close();
   });
 });
@@ -158,15 +158,15 @@ describe("openDatabase version gate (SC-04, SPEC-R6)", () => {
 
     // Now openDatabase should throw the version gate error
     const { openDatabase } = await import("../src/db.ts");
-    expect(() => openDatabase(path)).toThrow(/schema version 99 > expected 4/);
+    expect(() => openDatabase(path)).toThrow(/schema version 99 > expected 5/);
   });
 });
 
-// --- SPEC-SCHEMA-1 — SCHEMA_VERSION constant is 4 ---------------------------
+// --- SPEC-SCHEMA-1 — SCHEMA_VERSION constant is 5 ---------------------------
 describe("SCHEMA_VERSION constant (SPEC-SCHEMA-1)", () => {
-  it("SCHEMA_VERSION === 4", async () => {
+  it("SCHEMA_VERSION === 5", async () => {
     const { SCHEMA_VERSION } = await import("../src/schema.ts");
-    expect(SCHEMA_VERSION).toBe(4);
+    expect(SCHEMA_VERSION).toBe(5);
   });
 });
 
@@ -200,7 +200,7 @@ describe("memory_entries tables (SPEC-SCHEMA-2)", () => {
     db.close();
   });
 
-  it("records _meta.schema_version = '4' on fresh open", async () => {
+  it("records _meta.schema_version = '5' on fresh open", async () => {
     const { openDatabase } = await import("../src/db.ts");
     const db = openDatabase(tempDbPath());
 
@@ -208,7 +208,7 @@ describe("memory_entries tables (SPEC-SCHEMA-2)", () => {
       .prepare("SELECT value FROM _meta WHERE key = 'schema_version'")
       .get() as { value: string } | undefined;
 
-    expect(row?.value).toBe("4");
+    expect(row?.value).toBe("5");
     db.close();
   });
 });
@@ -324,7 +324,7 @@ describe("v2→v3 migration (SPEC-SCHEMA-4)", () => {
     const metaRow = db
       .prepare("SELECT value FROM _meta WHERE key = 'schema_version'")
       .get() as { value: string } | undefined;
-    expect(metaRow?.value).toBe("4");
+    expect(metaRow?.value).toBe("5");
 
     const memTable = db
       .prepare(
@@ -368,7 +368,7 @@ describe("Schema v4 — lineage index (SPEC-LINEAGE-2)", () => {
     db.close();
   });
 
-  it("records schema_version = '4' on a fresh v4 open", async () => {
+  it("records schema_version = '5' on a fresh open (updated for v5)", async () => {
     const { openDatabase } = await import("../src/db.ts");
     const db = openDatabase(tempDbPath());
 
@@ -376,7 +376,7 @@ describe("Schema v4 — lineage index (SPEC-LINEAGE-2)", () => {
       .prepare("SELECT value FROM _meta WHERE key = 'schema_version'")
       .get() as { value: string } | undefined;
 
-    expect(row?.value).toBe("4");
+    expect(row?.value).toBe("5");
     db.close();
   });
 });
@@ -417,15 +417,15 @@ describe("v3→v4 migration (SPEC-LINEAGE-3)", () => {
     `).run();
     seedDb.close();
 
-    // Open with v4 code — should migrate silently
+    // Open with current code — should migrate silently to v5
     const { openDatabase } = await import("../src/db.ts");
     const db = openDatabase(path);
 
-    // schema_version must be '4'
+    // schema_version must be '5' (v3 DB migrates all the way to current version)
     const metaRow = db
       .prepare("SELECT value FROM _meta WHERE key = 'schema_version'")
       .get() as { value: string } | undefined;
-    expect(metaRow?.value).toBe("4");
+    expect(metaRow?.value).toBe("5");
 
     // idx_sessions_parent_session_id must exist
     const indexRow = db

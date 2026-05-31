@@ -19,6 +19,10 @@
  * v4 additions: DDL_SESSIONS_LINEAGE_INDEX — CREATE INDEX IF NOT EXISTS on
  * sessions.parent_session_id (SPEC-LINEAGE-2, F-CORE-6 compaction lineage).
  * No existing tables or data modified.
+ *
+ * v5 additions: DDL_MONTHLY_SPEND + DDL_MONTHLY_SPEND_INDEX — monthly_spend
+ * table + agent index for per-agent budget enforcement (F-CORE-8,
+ * SPEC-SPEND-DDL-1). No existing tables or data modified.
  */
 
 import Database from "./sqlite-shim.ts";
@@ -34,6 +38,8 @@ import {
   DDL_MESSAGES_FTS,
   DDL_MESSAGES_FTS_TRIGGERS,
   DDL_META,
+  DDL_MONTHLY_SPEND,
+  DDL_MONTHLY_SPEND_INDEX,
   DDL_SESSIONS,
   DDL_SESSIONS_LINEAGE_INDEX,
   SCHEMA_VERSION,
@@ -129,6 +135,7 @@ export function openDatabase(path: string): DB {
   //    v2: messages tables appended after audit blocks (ADR-D6).
   //    v3: memory_entries tables appended after messages blocks (ADR-M6).
   //    v4: lineage index on sessions.parent_session_id (SPEC-LINEAGE-2).
+  //    v5: monthly_spend table + index for per-agent budget (SPEC-SPEND-DDL-1).
   for (const block of [
     DDL_META,
     DDL_SESSIONS,
@@ -142,6 +149,8 @@ export function openDatabase(path: string): DB {
     DDL_MEMORY_FTS,
     DDL_MEMORY_FTS_TRIGGERS,
     DDL_SESSIONS_LINEAGE_INDEX,
+    DDL_MONTHLY_SPEND,
+    DDL_MONTHLY_SPEND_INDEX,
   ]) {
     db.exec(block);
   }

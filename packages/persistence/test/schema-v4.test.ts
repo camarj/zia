@@ -105,9 +105,9 @@ function seedV3Db(dbPath: string): void {
 // ---------------------------------------------------------------------------
 
 describe("SCHEMA_VERSION constant (SPEC-V4-CONST)", () => {
-  it("SCHEMA_VERSION === 4", async () => {
+  it("SCHEMA_VERSION >= 4 (v4 schema exists; current version advanced to v5)", async () => {
     const { SCHEMA_VERSION } = await import("../src/schema.ts");
-    expect(SCHEMA_VERSION).toBe(4);
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(4);
   });
 
   it("DDL_SESSIONS_LINEAGE_INDEX is exported from schema.ts", async () => {
@@ -129,7 +129,7 @@ describe("v4 fresh open (SPEC-LINEAGE-1, SPEC-LINEAGE-2)", () => {
   beforeEach(() => { tempDir = makeTempDir(); });
   afterEach(() => { rmSync(tempDir, { recursive: true, force: true }); });
 
-  it("records schema_version='4' on a fresh database open (SPEC-V4-CONST)", async () => {
+  it("records schema_version >= '4' on a fresh database open (current version is v5)", async () => {
     const { openDatabase } = await import("../src/db.ts");
     const db = openDatabase(join(tempDir, "fresh-v4.db"));
 
@@ -137,7 +137,7 @@ describe("v4 fresh open (SPEC-LINEAGE-1, SPEC-LINEAGE-2)", () => {
       .prepare("SELECT value FROM _meta WHERE key='schema_version'")
       .get() as { value: string } | undefined;
 
-    expect(row?.value).toBe("4");
+    expect(parseInt(row?.value ?? "0", 10)).toBeGreaterThanOrEqual(4);
     db.close();
   });
 
@@ -195,7 +195,7 @@ describe("v3→v4 migration (SPEC-LINEAGE-3)", () => {
     openDatabase(dbPath).close();
   });
 
-  it("bumps schema_version to '4' after v3→v4 migration", async () => {
+  it("bumps schema_version to >= '4' after v3→vN migration (current schema is v5)", async () => {
     const dbPath = join(tempDir, "v3-meta.db");
     seedV3Db(dbPath);
 
@@ -206,7 +206,7 @@ describe("v3→v4 migration (SPEC-LINEAGE-3)", () => {
       .prepare("SELECT value FROM _meta WHERE key='schema_version'")
       .get() as { value: string } | undefined;
 
-    expect(row!.value).toBe("4");
+    expect(parseInt(row!.value, 10)).toBeGreaterThanOrEqual(4);
     db.close();
   });
 
