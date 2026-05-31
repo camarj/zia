@@ -8,7 +8,7 @@ import { parse as parseYaml } from "yaml";
 import { messagePersistExtension, runZiaAgentPrint } from "@zia/core";
 import { AutoApproveResolver } from "@zia/callbacks";
 import { FileBasedMemoryProvider, SqliteFtsMemoryProvider } from "@zia/memory";
-import { openDatabase, SqliteAuditLog, SqliteMessageStore } from "@zia/persistence";
+import { createMonthlySpendStore, openDatabase, SqliteAuditLog, SqliteMessageStore } from "@zia/persistence";
 import { createBuiltinTools, createMcpAdapter } from "@zia/tools";
 
 /**
@@ -76,6 +76,10 @@ async function main(): Promise<void> {
     db = openDatabase(join(fichaDir, "zia.db"));
     const auditLog = new SqliteAuditLog(db);
 
+    // F-CORE-8: monthly spend store for budget enforcement (SPEC-EXT-2).
+    // Created from the same db handle as SqliteAuditLog — one DB per agent.
+    const monthlySpendStore = createMonthlySpendStore(db);
+
     const messageStore = new SqliteMessageStore(db);
     const sessionKey = `print:${basename(fichaDir)}`;
 
@@ -114,6 +118,7 @@ async function main(): Promise<void> {
     const approvalResolver =
       process.env.ZIA_PRINT_APPROVE_ALL === "1" ? new AutoApproveResolver() : undefined;
 
+    // F-CORE-8: monthlySpendStore injected for budget enforcement (SPEC-EXT-2).
     exitCode = await runZiaAgentPrint({
       fichaDir,
       prompt,
@@ -122,6 +127,7 @@ async function main(): Promise<void> {
       rawTools: [...handle.tools, ...builtinTools],
       auditLog,
       extensionFactories: [messagePersistExtension(messageStore, sessionKey)],
+      monthlySpendStore,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

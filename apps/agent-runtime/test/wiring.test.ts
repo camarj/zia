@@ -72,6 +72,12 @@ vi.mock("@zia/persistence", () => ({
   openDatabase: mockOpenDatabase,
   SqliteAuditLog: vi.fn().mockImplementation(() => mockAuditLog),
   SqliteMessageStore: vi.fn().mockImplementation(() => mockMessageStore),
+  // F-CORE-8: budget store wiring (SPEC-EXT-2). Minimal structural mock.
+  createMonthlySpendStore: vi.fn().mockImplementation(() => ({
+    accumulate: vi.fn(),
+    getSpend: vi.fn().mockReturnValue(0),
+    getSpendOrThrow: vi.fn().mockReturnValue(0),
+  })),
 }));
 
 // ---------------------------------------------------------------------------

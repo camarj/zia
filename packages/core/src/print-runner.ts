@@ -2,6 +2,7 @@ import { runPrintMode } from "@earendil-works/pi-coding-agent";
 import type { ApprovalResolver } from "@zia/callbacks";
 
 import { createZiaAgent, type CreateZiaAgentOptions } from "./agent.ts";
+import { type MonthlySpendStore } from "./budget-extension.ts";
 
 /**
  * Options for a one-shot print run. Extends the agent options with the prompt
@@ -26,6 +27,14 @@ export interface RunZiaAgentPrintOptions extends CreateZiaAgentOptions {
    * unattended scenario where auto-approval is intended.
    */
   approvalResolver?: ApprovalResolver;
+  /**
+   * Optional monthly spend store for budget enforcement (F-CORE-8).
+   *
+   * Forwarded into createZiaAgent as part of the 3-hop injection path:
+   *   print.ts → runZiaAgentPrint → createZiaAgent (per design correction INV-1).
+   * Omit to run without budget enforcement.
+   */
+  monthlySpendStore?: MonthlySpendStore;
 }
 
 /**
@@ -44,9 +53,13 @@ export interface RunZiaAgentPrintOptions extends CreateZiaAgentOptions {
  * @returns the process exit code from runPrintMode (0 = success, 1 = error/abort).
  */
 export async function runZiaAgentPrint(opts: RunZiaAgentPrintOptions): Promise<number> {
-  const { prompt, mode, followUps, approvalResolver, ...agentOpts } = opts;
+  const { prompt, mode, followUps, approvalResolver, monthlySpendStore, ...agentOpts } = opts;
 
-  const { runtime, queue } = await createZiaAgent(agentOpts);
+  const { runtime, queue } = await createZiaAgent({
+    ...agentOpts,
+    // T-4a.5: forward monthlySpendStore into createZiaAgent (3-hop path).
+    monthlySpendStore,
+  });
 
   // Bind the resolver only if one is supplied. Omitted = fail-closed: the queue
   // stays null-bound and the gate denies medio/alto, auditing "system:fail-closed".

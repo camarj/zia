@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import {
   AuthStorage,
@@ -24,6 +24,7 @@ import {
 } from "@zia/callbacks";
 import {
   readFichaLlm,
+  readFichaProfile,
   resolveAvailableModels,
   type ResolvedModelEntry,
 } from "@zia/providers";
@@ -36,6 +37,10 @@ import {
   type CacheEligibility,
   type CacheRetention,
 } from "./cache.ts";
+import {
+  createBudgetEnforcementExtension,
+  type MonthlySpendStore,
+} from "./budget-extension.ts";
 
 type ThinkingLevel = "off" | "low" | "medium" | "high";
 
@@ -107,6 +112,19 @@ export interface CreateZiaAgentOptions {
    * no-ops in RPC / print modes. Defaults to [] (no extensions).
    */
   extensionFactories?: ExtensionFactory[];
+  /**
+   * Optional monthly spend store for budget enforcement (F-CORE-8, SPEC-BUDGET-5).
+   *
+   * When provided AND ficha.llm.monthly_budget_usd > 0, the budget enforcement
+   * extension is injected. When absent or when budget is absent/zero in the ficha,
+   * no budget extension is added (feature OFF — no accumulation, no gate).
+   *
+   * The instance is created at the composition root (apps/agent-runtime) from the
+   * same SQLite db handle used for SqliteAuditLog — @zia/core never imports
+   * @zia/persistence (INV-1). MonthlySpendStore is a structural interface declared
+   * in budget-extension.ts; SqliteMonthlySpendStore satisfies it structurally.
+   */
+  monthlySpendStore?: MonthlySpendStore;
 }
 
 export interface ZiaAgentHandle {
@@ -239,6 +257,60 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
     onGatedCtx: opts.onGatedCtx,
   });
 
+  // ---------------------------------------------------------------------------
+  // F-CORE-8: resolve agentId and budget enforcement extension
+  //
+  // agentId comes from profile.yaml `agent.id`. When absent, we derive a slug
+  // from path.basename(fichaDir) and emit a startup warning (SPEC-BUDGET-6).
+  //
+  // readFichaProfile reads the same file as readFichaLlm above. The slight
+  // redundancy is intentional — readFichaLlm is the strict default-model reader;
+  // readFichaProfile is the full profile reader. Combining them into one call
+  // would require refactoring the existing readFichaLlm contract.
+  //
+  // The budget extension is injected IFF:
+  //  1. opts.monthlySpendStore is provided (composition root wires the SQLite store)
+  //  2. ficha.llm.monthly_budget_usd > 0 (budget declared and positive)
+  // Both conditions must hold — one alone is insufficient (SPEC-BUDGET-5, EC-10).
+  // ---------------------------------------------------------------------------
+  let agentId: string;
+  let budgetUsd: number | undefined;
+
+  if (opts.monthlySpendStore !== undefined) {
+    const fichaProfile = await readFichaProfile(opts.fichaDir);
+    budgetUsd = fichaProfile.llm?.monthly_budget_usd;
+
+    if (fichaProfile.agent?.id) {
+      agentId = fichaProfile.agent.id;
+    } else {
+      agentId = basename(opts.fichaDir);
+      process.stderr.write(
+        `zia: ${opts.fichaDir}/profile.yaml is missing agent.id. ` +
+        `Budget and audit records will use the directory name as the agent identifier. ` +
+        `Add 'agent:\\n  id: <slug>' to silence this warning.\n`,
+      );
+    }
+  } else {
+    // No store provided — agentId is unused; budget extension will not be injected.
+    agentId = basename(opts.fichaDir);
+  }
+
+  // Build the budget extension factory (null when budgetUsd <= 0 or store absent).
+  const budgetExtensionFactory =
+    opts.monthlySpendStore !== undefined && budgetUsd !== undefined && budgetUsd > 0
+      ? createBudgetEnforcementExtension({
+          store: opts.monthlySpendStore,
+          agentId,
+          budgetUsd,
+        })
+      : null;
+
+  // Compose extension factories: caller-supplied + budget extension (if active).
+  const allExtensionFactories: ExtensionFactory[] = [
+    ...(opts.extensionFactories ?? []),
+    ...(budgetExtensionFactory !== null ? [budgetExtensionFactory] : []),
+  ];
+
   const cwd = opts.cwd ?? process.cwd();
   const agentDir = getAgentDir();
 
@@ -267,7 +339,7 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
         // Inline, in-process extensions (e.g. the zia header). These load even
         // with noExtensions: true — that flag only suppresses on-disk host
         // discovery, never the explicit factories passed here.
-        extensionFactories: opts.extensionFactories ?? [],
+        extensionFactories: allExtensionFactories,
       },
     });
     return {
