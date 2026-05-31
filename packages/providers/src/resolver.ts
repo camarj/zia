@@ -143,24 +143,35 @@ export type ResolvedModelEntry = {
 
 /**
  * Resolve all models declared in `llm.available[]` from the ficha into pi.dev
- * {@link Model} objects, registering API-key credentials into `authStorage`.
+ * {@link Model} objects, registering API-key credentials into `authStorage`
+ * on a **best-effort / lazy** basis.
  *
- * Contract (SPEC-MODELS-1):
- * - Reads `FichaProfile.llm.available[]`; if absent or empty, falls back to
- *   `[{ model: defaultModel, thinkingLevel: defaultThinkingLevel }]` — same
- *   result as pre-PR1 single-model behaviour (SPEC-MODELS-1-C / EC-11).
- * - For each entry, calls `getModel(provider, modelId)` and registers
- *   `env[credentialEnv]` into `authStorage.setRuntimeApiKey(provider, key)`
- *   when `credentialEnv` is present and the env var is set.
- * - If `credentialEnv` is present but the env var is NOT set → throws
- *   {@link ZiaConfigError} with an actionable message naming provider + var
- *   (SPEC-MODELS-1-B).
- * - Custom/self-hosted providers (no `credentialEnv`): resolved without any
- *   auth registration (SPEC-MODELS-1-D).
- * - OAuth providers (no `credentialEnv`): resolved without env-var check;
- *   pi.dev's AuthStorage handles their token at session start.
- * - Returns the resolved array in the same order as `llm.available[]`
- *   (first entry = default model for session start).
+ * Alignment with Hermes §7 + pi.dev multi-model:
+ * - Hermes: resolves credentials for the ACTIVE provider only; fallback_providers
+ *   are walked on failure, not pre-authenticated at startup.
+ * - pi.dev: `scopedModels = available.map(m => ({ model: getModel(...) }))`.
+ *   `getModel()` builds a descriptor only — auth is resolved when the model
+ *   is actually used via `session.setModel()`.
+ *
+ * Contract:
+ * - Reads `FichaProfile.llm.available[]`; if absent or empty, returns a
+ *   single-entry array with the default model (SPEC-MODELS-1-C / EC-11).
+ *   The single-entry fallback is LAZY too: no throw here — the ACTIVE model's
+ *   strict auth is enforced in `agent.ts` before this function is called.
+ * - For each `available[]` entry, calls `resolveEntryToModel(entry)` to get
+ *   the pi.dev descriptor.
+ * - Auth registration is **best-effort** (lazy):
+ *   - api-key entry whose env var IS present → `setRuntimeApiKey` (seamless switch).
+ *   - api-key entry whose env var is MISSING → skip silently (no throw). Auth is
+ *     resolved at switch time; if the key is absent then, pi.dev returns false
+ *     from `setModel()` and the /model command surfaces a clear error (EC-7).
+ *   - OAuth entry whose `hasAuth()` IS true → fine (token ready).
+ *   - OAuth entry whose `hasAuth()` IS false → skip silently (no throw). Menu
+ *     entry remains; switch may fail at use time — that is the correct behavior.
+ *   - Custom/self-hosted (no credentialEnv, not OAuth) → nothing (SPEC-MODELS-1-D).
+ * - Returns the resolved array in the SAME ORDER as `llm.available[]`.
+ * - NEVER throws `ZiaConfigError` for missing credentials in the `available[]`
+ *   loop. That strictness lives in `agent.ts` for the ACTIVE (default) model only.
  *
  * @param fichaDir  - path to the agent ficha directory
  * @param env       - process.env or test seam
@@ -174,26 +185,16 @@ export async function resolveAvailableModels(
   const profile = await readFichaProfile(fichaDir);
   const available = profile.llm?.available;
 
-  // SPEC-MODELS-1-C / EC-11: absent or empty available[] → single-entry fallback
+  // SPEC-MODELS-1-C / EC-11: absent or empty available[] → single-entry fallback.
+  // Lazy: no auth check here — the ACTIVE model's credential is verified strictly
+  // in agent.ts before this call (restored active-model auth block).
   if (!available || available.length === 0) {
     const declaration = await readFichaLlm(fichaDir);
-    // OAuth providers: verify auth.json exists before building the session,
-    // matching the fail-fast contract that was previously in agent.ts. Without
-    // this check, an OAuth ficha with no llm.available would silently proceed
-    // and fail deep inside the first LLM call with a cryptic error.
-    if (isOAuthProvider(declaration.provider)) {
-      if (!authStorage.hasAuth(declaration.provider)) {
-        throw new ZiaConfigError(
-          `zia: provider "${declaration.provider}" needs an OAuth login but no credentials were found. ` +
-            `Run \`pnpm --filter @zia/agent-runtime model ${fichaDir}\` to authenticate.`,
-        );
-      }
-    } else if (declaration.provider !== "custom") {
-      // W-1: parity with the loop path — register the api-key credential into
-      // authStorage so explicit registration is honored (SPEC-MODELS-1), not
-      // only pi.dev's env-var fallback. resolveModelFromFicha below already
-      // throws if the env var is absent, so a present value is guaranteed for
-      // api-key providers by the time the session is built.
+    // Best-effort credential registration for the default model (W-1):
+    // register the api-key into authStorage if the env var is present so that
+    // explicit registration is honored (pi.dev's getApiKey priority-1 over env).
+    // We do NOT throw here — agent.ts enforces the strict check.
+    if (!isOAuthProvider(declaration.provider) && declaration.provider !== "custom") {
       const credentialEnv =
         declaration.credentialEnv ?? findProvider(declaration.provider)?.credentialEnv;
       const value = credentialEnv ? env[credentialEnv] : undefined;
@@ -210,38 +211,26 @@ export async function resolveAvailableModels(
     }];
   }
 
+  // available[] present — build the menu (lazy auth, no throws).
   const results: ResolvedModelEntry[] = [];
 
   for (const entry of available) {
     const model = resolveEntryToModel(entry);
 
-    // Register credential into authStorage when a credentialEnv is declared.
+    // Best-effort credential registration: register the key IF present so that
+    // switching to this model is seamless. If absent — skip silently. The active
+    // model's key was already verified strictly in agent.ts.
     if (entry.credentialEnv) {
       const key = env[entry.credentialEnv];
-      if (!key) {
-        // SPEC-MODELS-1-B: missing env var → ZiaConfigError with actionable msg
-        throw new ZiaConfigError(
-          `zia: credential env var "${entry.credentialEnv}" is not set for provider "${entry.provider}". ` +
-            `Set ${entry.credentialEnv} in the agent's .env file or container environment.`,
-        );
+      if (key) {
+        // Key is present — register for seamless switch.
+        authStorage.setRuntimeApiKey(entry.provider, key);
       }
-      authStorage.setRuntimeApiKey(entry.provider, key);
-    } else if (isOAuthProvider(entry.provider)) {
-      // SPEC-MODELS-1 (OAuth prose) / EC-6: OAuth providers carry no
-      // credentialEnv — their tokens live in pi.dev's AuthStorage (auth.json),
-      // not env vars (engram #556). We do NOT store anything here; we only
-      // verify the token already exists so set_model never fails at runtime
-      // for lack of auth, and surface an actionable error at startup if not.
-      if (!authStorage.hasAuth(entry.provider)) {
-        throw new ZiaConfigError(
-          `zia: provider "${entry.provider}" needs an OAuth login but no credentials were found. ` +
-            `Run \`pnpm --filter @zia/agent-runtime model ${fichaDir}\` to authenticate.`,
-        );
-      }
+      // Key absent — skip. Switch to this model will fail at use time (EC-7).
     }
-    // Custom/self-hosted providers (no credentialEnv, not OAuth — e.g. ollama,
-    // vLLM, LiteLLM) handle auth at the endpoint level: no registration, no
-    // check, no error (SPEC-MODELS-1-D).
+    // OAuth providers (no credentialEnv): if hasAuth is true, token is ready.
+    // If false — skip silently. Same lazy-at-use semantics.
+    // Custom/self-hosted (no credentialEnv, not OAuth): no auth (SPEC-MODELS-1-D).
 
     results.push({
       model,
