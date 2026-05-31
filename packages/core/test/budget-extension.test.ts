@@ -101,7 +101,23 @@ vi.mock("@earendil-works/pi-ai", () => ({
 
 vi.mock("@zia/providers", async (importOriginal) => {
   const original = await importOriginal<typeof import("@zia/providers")>();
-  return { ...original, resolveAvailableModels: resolveAvailableModelsMock };
+  return {
+    ...original,
+    resolveAvailableModels: resolveAvailableModelsMock,
+    // Also mock resolveModelFromFicha so agent.ts's active-model boot call
+    // succeeds without requiring a real ANTHROPIC_API_KEY in these unit tests.
+    resolveModelFromFicha: vi.fn().mockResolvedValue({
+      id: "claude-haiku-4-5-20251001",
+      provider: "anthropic",
+      name: "claude-haiku-4-5-20251001 (mock)",
+      api: "anthropic",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 128_000,
+      maxTokens: 32_000,
+    }),
+  };
 });
 
 // ---------------------------------------------------------------------------

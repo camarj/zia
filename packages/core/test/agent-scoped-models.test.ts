@@ -99,6 +99,20 @@ vi.mock("@zia/providers", async (importOriginal) => {
   return {
     ...original,
     resolveAvailableModels: resolveAvailableModelsMock,
+    // Mock resolveModelFromFicha so agent.ts's active-model boot call succeeds
+    // without requiring a real API key. The return value matches getModel's shape
+    // from the pi-ai mock above (id + provider string).
+    resolveModelFromFicha: vi.fn().mockResolvedValue({
+      id: "claude-haiku-4-5-20251001",
+      provider: "anthropic",
+      name: "claude-haiku-4-5-20251001 (mock)",
+      api: "anthropic",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 128_000,
+      maxTokens: 32_000,
+    }),
   };
 });
 

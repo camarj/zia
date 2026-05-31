@@ -23,9 +23,13 @@ import {
   wrapToolsWithApproval,
 } from "@zia/callbacks";
 import {
+  findProvider,
+  isOAuthProvider,
   readFichaLlm,
   readFichaProfile,
   resolveAvailableModels,
+  resolveModelFromFicha,
+  ZiaConfigError,
   type ResolvedModelEntry,
 } from "@zia/providers";
 
@@ -193,18 +197,66 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
   const authStorage = AuthStorage.create();
 
   // ---------------------------------------------------------------------------
-  // F-CORE-9: resolve all models from llm.available[] BEFORE creating the
-  // session runtime, so every model's credentials are registered into
-  // authStorage and set_model / cycle_model never fail for lack of auth at
-  // runtime (SPEC-SCOPED-1, SPEC-MODELS-1).
+  // ACTIVE MODEL AUTH (strict) — Hermes §7 + pi.dev multi-model realignment.
   //
-  // resolveAvailableModels handles:
-  //  - credential registration (authStorage.setRuntimeApiKey) for api-key providers
-  //  - OAuth hasAuth check with a ZiaConfigError on missing login
-  //  - single-entry fallback when llm.available is absent/empty (SPEC-MODELS-1-C)
+  // The ACTIVE (boot) model comes from `llm.default`. Its credential is verified
+  // strictly here before any session is created. This mirrors Hermes:
+  //   "resolution precedence: explicit→config→env→defaults; saved choice is
+  //    source of truth" — the default IS the active choice at startup.
   //
-  // The legacy single-model auth block that was here is replaced by this call.
-  // We still read the declaration above for cacheRetention + cacheEligibility.
+  // Three cases:
+  //  1. OAuth provider (e.g. github-copilot): check hasAuth; throw ZiaConfigError
+  //     with a `pnpm --filter @zia/agent-runtime model <fichaDir>` hint if not authed.
+  //  2. api-key provider: resolve credentialEnv from declaration or catalog default;
+  //     setRuntimeApiKey when the key is present. resolveModelFromFicha (called via
+  //     resolveAvailableModels fallback path) already throws if the key is absent —
+  //     so auth registration here is best-effort supplemental; the throw from
+  //     resolveModelFromFicha is the enforced failure for missing api-key.
+  //  3. custom provider: no auth required (endpoint-level auth at the caller).
+  //
+  // NOTE: resolveAvailableModels (the menu resolver below) is LAZY — it never
+  // throws for missing credentials in llm.available[]. All strict checks are here.
+  // ---------------------------------------------------------------------------
+  if (isOAuthProvider(declaration.provider)) {
+    // OAuth: credentials live in auth.json managed by pi.dev's AuthStorage.
+    // AuthStorage.create() loads the token from getAgentDir()/auth.json — check
+    // now before proceeding, so the error is surfaced at startup, not mid-session.
+    if (!authStorage.hasAuth(declaration.provider)) {
+      throw new ZiaConfigError(
+        `zia: provider "${declaration.provider}" needs an OAuth login but no credentials were found. ` +
+          `Run \`pnpm --filter @zia/agent-runtime model ${opts.fichaDir}\` to authenticate.`,
+      );
+    }
+  } else if (declaration.provider !== "custom") {
+    // api-key provider: resolve the env var name and register the key.
+    // resolveModelFromFicha (called below) already throws when the key is unset,
+    // so we only need to register it here when present (best-effort supplemental).
+    const entry = findProvider(declaration.provider);
+    const credentialEnv = declaration.credentialEnv ?? entry?.credentialEnv;
+    if (credentialEnv) {
+      const key = process.env[credentialEnv];
+      if (key) {
+        authStorage.setRuntimeApiKey(declaration.provider, key);
+      }
+      // key absent → resolveModelFromFicha below throws with the actionable message.
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // F-CORE-9: resolve the switch MENU (llm.available[]) — LAZY auth.
+  //
+  // resolveAvailableModels builds descriptors for ALL available[] entries and
+  // registers credentials ONLY for entries whose env var is PRESENT (best-effort).
+  // It NEVER throws for missing keys in the available[] loop — that strictness
+  // belongs to the active-model block above.
+  //
+  // Handles:
+  //  - Best-effort credential registration for api-key entries with present keys
+  //  - Single-entry fallback when llm.available is absent/empty (SPEC-MODELS-1-C)
+  //  - Custom/ollama entries (no credentialEnv) pass through without auth
+  //
+  // The session BOOTS with `llm.default` (the active model), not available[0].
+  // resolvedModels[0] is used here only as the fallback when available[] is absent.
   // ---------------------------------------------------------------------------
   const resolvedModels: ResolvedModelEntry[] = await resolveAvailableModels(
     opts.fichaDir,
@@ -212,11 +264,12 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
     authStorage,
   );
 
-  // resolvedModels is guaranteed non-empty by resolveAvailableModels (fallback
-  // ensures at least one entry). The first entry is the session default.
-  const defaultEntry = resolvedModels[0]!;
-  const model = defaultEntry.model;
-  const thinkingLevel = opts.thinkingLevel ?? defaultEntry.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
+  // Resolve the ACTIVE (boot) model from llm.default — strictly. This call
+  // throws when the api-key is absent, naming the env var (the auth block above
+  // already registered the key when present, so this is a no-double-work read).
+  const activeModel = await resolveModelFromFicha(opts.fichaDir, process.env);
+  const model = activeModel;
+  const thinkingLevel = opts.thinkingLevel ?? declaration.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
 
   const modelRegistry = ModelRegistry.create(authStorage);
 
