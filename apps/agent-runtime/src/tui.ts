@@ -1,8 +1,12 @@
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import process from "node:process";
 
+import { parse as parseYaml } from "yaml";
+
 import { messagePersistExtension, runZiaAgentTui } from "@zia/core";
+import { FileBasedMemoryProvider, SqliteFtsMemoryProvider } from "@zia/memory";
 import { openDatabase, SqliteAuditLog, SqliteMessageStore } from "@zia/persistence";
 import { createBuiltinTools, createMcpAdapter } from "@zia/tools";
 
@@ -79,7 +83,40 @@ async function main(): Promise<void> {
     // slice will supply real per-session keys; a single TUI session is correct here.
     const messageStore = new SqliteMessageStore(db);
     const sessionKey = `tui:${basename(fichaDir)}`;
-    const builtinTools = createBuiltinTools(fichaDir, (q, lim) => messageStore.search(q, lim));
+
+    // SPEC-WIRE-1, ADR-M8: read optional memory.provider from profile.yaml.
+    // Default is 'file' (FileBasedMemoryProvider, human-readable MEMORY.md).
+    // 'sqlite' selects SqliteFtsMemoryProvider wired to the shared db handle.
+    let memoryBackend: string = "file";
+    try {
+      const profileRaw = await readFile(join(fichaDir, "profile.yaml"), "utf8");
+      const profileData = parseYaml(profileRaw) as Record<string, unknown> | null;
+      const memoryBlock = profileData?.["memory"];
+      if (
+        memoryBlock !== null &&
+        typeof memoryBlock === "object" &&
+        "provider" in (memoryBlock as object)
+      ) {
+        const provider = (memoryBlock as Record<string, unknown>)["provider"];
+        if (provider === "sqlite" || provider === "file") {
+          memoryBackend = provider;
+        }
+      }
+    } catch {
+      // ENOENT or parse error → fall back to 'file' (no-throw, defensive)
+    }
+
+    const memoryProvider =
+      memoryBackend === "sqlite"
+        ? new SqliteFtsMemoryProvider(db)
+        : new FileBasedMemoryProvider(join(fichaDir, "MEMORY.md"));
+
+    // SPEC-WIRE-2: use options-object form (positional form removed in task 3.3).
+    const builtinTools = createBuiltinTools(fichaDir, {
+      searchFn: (q, lim) => messageStore.search(q, lim),
+      memoryWriteFn: (body) => memoryProvider.write(body),
+      memorySearchFn: (q, lim) => memoryProvider.search(q, lim),
+    });
 
     // SPEC-API-3: rawTools = MCP tools + builtin tools; auditLog + extensionFactories wired.
     await runZiaAgentTui({
