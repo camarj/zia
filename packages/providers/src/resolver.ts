@@ -184,9 +184,21 @@ export async function resolveAvailableModels(
     if (isOAuthProvider(declaration.provider)) {
       if (!authStorage.hasAuth(declaration.provider)) {
         throw new ZiaConfigError(
-          `zia: no OAuth credentials found for "${declaration.provider}". ` +
+          `zia: provider "${declaration.provider}" needs an OAuth login but no credentials were found. ` +
             `Run \`pnpm --filter @zia/agent-runtime model ${fichaDir}\` to authenticate.`,
         );
+      }
+    } else if (declaration.provider !== "custom") {
+      // W-1: parity with the loop path — register the api-key credential into
+      // authStorage so explicit registration is honored (SPEC-MODELS-1), not
+      // only pi.dev's env-var fallback. resolveModelFromFicha below already
+      // throws if the env var is absent, so a present value is guaranteed for
+      // api-key providers by the time the session is built.
+      const credentialEnv =
+        declaration.credentialEnv ?? findProvider(declaration.provider)?.credentialEnv;
+      const value = credentialEnv ? env[credentialEnv] : undefined;
+      if (credentialEnv && value) {
+        authStorage.setRuntimeApiKey(declaration.provider, value);
       }
     }
     const defaultModel = await resolveModelFromFicha(fichaDir, env);
@@ -223,7 +235,7 @@ export async function resolveAvailableModels(
       if (!authStorage.hasAuth(entry.provider)) {
         throw new ZiaConfigError(
           `zia: provider "${entry.provider}" needs an OAuth login but no credentials were found. ` +
-            `Run \`pi login ${entry.provider}\` inside the agent container to authenticate.`,
+            `Run \`pnpm --filter @zia/agent-runtime model ${fichaDir}\` to authenticate.`,
         );
       }
     }

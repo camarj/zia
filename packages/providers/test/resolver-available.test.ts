@@ -178,6 +178,10 @@ llm:
 
     expect(result).toHaveLength(1);
     expect(result[0]!.model.id).toBe("gpt-4o-mini");
+    // W-1: the fallback path registers the api-key explicitly (parity with the
+    // loop path), not only relying on pi.dev's env-var fallback. The mock's
+    // hasAuth only reflects setRuntimeApiKey calls, so this asserts registration.
+    expect(auth.hasAuth("openai")).toBe(true);
   });
 
   it("returns array of length 1 when llm.available is an empty array (SPEC-MODELS-1-C / EC-11)", async () => {
@@ -279,7 +283,7 @@ llm:
     // No token seeded — hasAuth("github-copilot") is false.
     await expect(resolveAvailableModels(dir, {}, auth)).rejects.toThrow(ZiaConfigError);
     await expect(resolveAvailableModels(dir, {}, auth)).rejects.toThrow(/github-copilot/);
-    await expect(resolveAvailableModels(dir, {}, auth)).rejects.toThrow(/pi login/);
+    await expect(resolveAvailableModels(dir, {}, auth)).rejects.toThrow(/agent-runtime model/);
   });
 
   // Mixed: anthropic + custom in available[]

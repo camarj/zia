@@ -1,6 +1,8 @@
 export { buildPromptFromFicha } from "./prompt-builder.ts";
 export { createZiaAgent } from "./agent.ts";
 export type { CreateZiaAgentOptions, ZiaAgentHandle } from "./agent.ts";
+// Re-export so consumers typing handle.scopedModels don't reach into @zia/providers (S-2).
+export type { ResolvedModelEntry } from "@zia/providers";
 export {
   assessCacheEligibility,
   estimateTokens,
