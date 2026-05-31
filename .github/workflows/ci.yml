@@ -12,9 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Version is read from package.json "packageManager" (pnpm@9.0.0).
+      # Do NOT also set `version:` here — pnpm/action-setup@v4 errors when both
+      # the input and packageManager are present ("Multiple versions of pnpm").
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - uses: actions/setup-node@v4
         with:
@@ -57,10 +58,10 @@ jobs:
           fi
           echo "OK: no @zia/persistence import statements in packages/tools/src"
 
-      - name: "Guard: agent.ts must keep tools: [] (SPEC-F1-7 / pi.dev native builtins suppressed)"
+      - name: "Guard: agent.ts must suppress pi.dev native builtins via noTools: \"builtin\" (SPEC-F1-7)"
         run: |
-          if ! grep -E "tools:\s*\[\]" packages/core/src/agent.ts > /dev/null 2>&1; then
-            echo "ERROR: 'tools: []' not found in packages/core/src/agent.ts — pi.dev native builtins may have been re-enabled"
+          if ! grep -E "noTools:\s*[\"']builtin[\"']" packages/core/src/agent.ts > /dev/null 2>&1; then
+            echo "ERROR: 'noTools: \"builtin\"' not found in packages/core/src/agent.ts — pi.dev native builtins may have been re-enabled (they would bypass the governance gate)"
             exit 1
           fi
-          echo "OK: tools: [] present in packages/core/src/agent.ts"
+          echo "OK: noTools: \"builtin\" present in packages/core/src/agent.ts"
