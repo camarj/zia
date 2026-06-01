@@ -32,6 +32,7 @@ import type {
   ExtensionFactory,
   SlashCommandInfo,
 } from "@earendil-works/pi-coding-agent";
+import type { Model } from "@earendil-works/pi-ai";
 
 import type { MonthlySpendStore } from "./budget-extension.ts";
 
@@ -45,7 +46,12 @@ import type { MonthlySpendStore } from "./budget-extension.ts";
  * cross-package imports for the structural fields it needs).
  */
 export interface AvailableModelEntry {
-  model: { id: string; provider: string };
+  /**
+   * Full pi.dev model object, ready to hand to pi.setModel().
+   * Typed as Model<any> to mirror the SDK's setModel(model: Model<any>) signature
+   * (same convention as @zia/providers resolver.ts) — no `as never` lies needed.
+   */
+  model: Model<any>;
   thinkingLevel?: "off" | "low" | "medium" | "high";
   label?: string;
   modelId: string;
@@ -140,25 +146,31 @@ export function createControlCommandsExtension(
 
   return (pi: ExtensionAPI): void => {
     // -----------------------------------------------------------------------
+    // Active-model tracking.
+    //
+    // The real pi.dev ExtensionAPI does NOT expose getCurrentModel(). It fires a
+    // `model_select` event whenever a new model is selected (TUI Ctrl+P, RPC
+    // set_model/cycle_model, or our own /model switch via setModel → source "set").
+    // We seed the active id from availableModels[0] (the session default at boot)
+    // and keep it current by subscribing to that event. /model and /status read
+    // this closure var so they never show a stale active model after a switch.
+    // -----------------------------------------------------------------------
+    let activeModelId = availableModels[0]?.modelId ?? "";
+
+    pi.on("model_select", (event) => {
+      // event.model is a pi.dev Model<any>; its id is the newly active model id.
+      const id = event.model?.id;
+      if (typeof id === "string" && id.length > 0) {
+        activeModelId = id;
+      }
+    });
+
+    // -----------------------------------------------------------------------
     // /model — list available models or switch to a named one (SPEC-CMD-1)
     // -----------------------------------------------------------------------
     pi.registerCommand("model", {
       description: "Switch or list available models. Usage: /model [name]",
       handler: async (args: string, _ctx: ExtensionCommandContext): Promise<void> => {
-        const thinkingLevel = pi.getThinkingLevel();
-        void thinkingLevel; // read for /status; not used here directly
-
-        // Determine active model ID from the current session.
-        // pi.getThinkingLevel() is always available; for the model id we try
-        // getCurrentModel() if the SDK exposes it (not typed on ExtensionAPI but
-        // present at runtime), then fall back to availableModels[0].
-        const piAny = pi as unknown as Record<string, unknown>;
-        const currentModel =
-          typeof piAny["getCurrentModel"] === "function"
-            ? (piAny["getCurrentModel"] as () => { id: string })()
-            : undefined;
-        const activeModelId = currentModel?.id ?? availableModels[0]?.modelId ?? "";
-
         const trimmed = args.trim();
 
         // No args → list all models, mark active
@@ -187,7 +199,7 @@ export function createControlCommandsExtension(
         }
 
         // Attempt the switch — setModel is async and returns false on missing creds
-        const success = await pi.setModel(match.model as never);
+        const success = await pi.setModel(match.model);
         if (success === false) {
           const text =
             `Error: cannot switch to "${match.modelId}" — missing API key or credentials. ` +
@@ -200,6 +212,12 @@ export function createControlCommandsExtension(
           });
           return;
         }
+
+        // Belt-and-suspenders: the SDK fires model_select (source "set") on a
+        // successful setModel, which already updated activeModelId above. We also
+        // set it here so the active model is correct even if the event is async
+        // and hasn't flushed before the next /model or /status read in-handler.
+        activeModelId = match.modelId;
 
         const labelPart = match.label ? ` (${match.label})` : "";
         const text = `Switched to ${match.modelId}${labelPart}.`;
@@ -258,14 +276,9 @@ export function createControlCommandsExtension(
     pi.registerCommand("status", {
       description: "Show agent status: model, thinking level, spend, and budget.",
       handler: async (_args: string, _ctx: ExtensionCommandContext): Promise<void> => {
-        const piAny = pi as unknown as Record<string, unknown>;
-        const currentModel =
-          typeof piAny["getCurrentModel"] === "function"
-            ? (piAny["getCurrentModel"] as () => { id: string })()
-            : undefined;
-        const activeModelId = currentModel?.id ?? availableModels[0]?.modelId ?? "(unknown)";
-        const activeEntry = availableModels.find((m) => m.modelId === activeModelId);
-        const activeLabel = activeEntry?.label ?? activeModelId;
+        const statusModelId = activeModelId || "(unknown)";
+        const activeEntry = availableModels.find((m) => m.modelId === statusModelId);
+        const activeLabel = activeEntry?.label ?? statusModelId;
 
         const thinkingLevel = pi.getThinkingLevel();
 
@@ -290,7 +303,7 @@ export function createControlCommandsExtension(
 
         const lines = [
           `Agent ID:       ${agentId}`,
-          `Model:          ${activeModelId}${activeLabel !== activeModelId ? ` (${activeLabel})` : ""}`,
+          `Model:          ${statusModelId}${activeLabel !== statusModelId ? ` (${activeLabel})` : ""}`,
           `Thinking level: ${thinkingLevel}`,
           `Monthly spend:  ${spendStr}${freeModelNote}`,
           `Monthly budget: ${budgetStr}`,
@@ -305,7 +318,7 @@ export function createControlCommandsExtension(
           display: true,
           details: {
             agentId,
-            activeModelId,
+            activeModelId: statusModelId,
             thinkingLevel,
             monthlySpend,
             budgetUsd,

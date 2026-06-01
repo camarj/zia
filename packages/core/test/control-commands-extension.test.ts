@@ -123,8 +123,29 @@ vi.mock("@zia/providers", async (importOriginal) => {
 // ---------------------------------------------------------------------------
 
 import { createControlCommandsExtension } from "../src/control-commands-extension.ts";
+import type { AvailableModelEntry } from "../src/control-commands-extension.ts";
 import { createZiaAgent } from "../src/agent.ts";
 import type { MonthlySpendStore } from "../src/budget-extension.ts";
+import type { Model } from "@earendil-works/pi-ai";
+
+// Build a full pi.dev Model<any> for fixtures. AvailableModelEntry.model is typed
+// as Model<any> (mirrors pi.setModel's signature), so test fixtures must supply a
+// complete model object. Only id/provider matter for these tests; the rest are
+// structural filler. Single cast point keeps the fixtures honest.
+function fakeModel(id: string, provider: string): Model<any> {
+  return {
+    id,
+    provider,
+    name: id,
+    api: "anthropic",
+    baseUrl: "https://example.invalid",
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 128_000,
+    maxTokens: 32_000,
+  } as unknown as Model<any>;
+}
 
 // ---------------------------------------------------------------------------
 // Fake MonthlySpendStore
@@ -142,22 +163,22 @@ function makeFakeStore(monthlySpend = 0): MonthlySpendStore {
 // Available models test fixture
 // ---------------------------------------------------------------------------
 
-const fakeAvailableModels = [
+const fakeAvailableModels: AvailableModelEntry[] = [
   {
-    model: { id: "claude-haiku-4-5-20251001", provider: "anthropic" },
-    thinkingLevel: "low" as const,
+    model: fakeModel("claude-haiku-4-5-20251001", "anthropic"),
+    thinkingLevel: "low",
     modelId: "claude-haiku-4-5-20251001",
     label: "Haiku (fast and cheap)",
   },
   {
-    model: { id: "claude-sonnet-4-6", provider: "anthropic" },
-    thinkingLevel: "medium" as const,
+    model: fakeModel("claude-sonnet-4-6", "anthropic"),
+    thinkingLevel: "medium",
     modelId: "claude-sonnet-4-6",
     label: "Sonnet (default, balance)",
   },
   {
-    model: { id: "claude-opus-4-7", provider: "anthropic" },
-    thinkingLevel: "high" as const,
+    model: fakeModel("claude-opus-4-7", "anthropic"),
+    thinkingLevel: "high",
     modelId: "claude-opus-4-7",
     label: "Opus (deep reasoning)",
   },
@@ -170,7 +191,7 @@ const fakeAvailableModels = [
 type CommandHandler = (args: string, ctx: unknown) => Promise<void>;
 
 function makeFakeApi(opts?: {
-  currentModelId?: string;
+  /** Thinking level returned by getThinkingLevel(). */
   currentThinkingLevel?: string;
   /** true (default) = setModel resolves true; false = resolves false (missing creds) */
   setModelSuccess?: boolean;
@@ -182,14 +203,12 @@ function makeFakeApi(opts?: {
     getCommands: ReturnType<typeof vi.fn>;
     setModel: ReturnType<typeof vi.fn>;
     getThinkingLevel: ReturnType<typeof vi.fn>;
-    getCurrentModel: ReturnType<typeof vi.fn>;
     commands: Map<string, { handler: CommandHandler; description: string }>;
     messages: Array<{ customType: string; content: unknown; details?: unknown }>;
     [key: string]: unknown;
   };
 } {
   const {
-    currentModelId = "claude-haiku-4-5-20251001",
     currentThinkingLevel = "low",
     setModelSuccess = true,
   } = opts ?? {};
@@ -197,10 +216,20 @@ function makeFakeApi(opts?: {
   const commands = new Map<string, { handler: CommandHandler; description: string }>();
   const messages: Array<{ customType: string; content: unknown; details?: unknown }> = [];
 
+  // Capture model_select handlers registered via pi.on("model_select", ...).
+  // The real ExtensionAPI fires this event whenever a new model is selected,
+  // including from setModel() (source: "set"). It does NOT expose getCurrentModel.
+  type ModelSelectHandler = (
+    event: { type: "model_select"; model: { id: string } },
+  ) => void | Promise<void>;
+  const modelSelectHandlers: ModelSelectHandler[] = [];
+
   const api = {
     commands,
     messages,
-    on: vi.fn(),
+    on: vi.fn((event: string, handler: ModelSelectHandler) => {
+      if (event === "model_select") modelSelectHandlers.push(handler);
+    }),
     sendMessage: vi.fn(
       (msg: { customType: string; content: unknown; details?: unknown }) => {
         messages.push(msg);
@@ -220,10 +249,18 @@ function makeFakeApi(opts?: {
       { name: "status", description: "Show agent status" },
       { name: "help", description: "List available slash commands" },
     ]),
-    // setModel is async per pi.dev SDK contract (returns Promise<boolean>)
-    setModel: vi.fn().mockResolvedValue(setModelSuccess),
+    // setModel is async per pi.dev SDK contract (returns Promise<boolean>).
+    // On success it fires the model_select event (source: "set"), mirroring the
+    // real SDK, so the extension can track the active model id.
+    setModel: vi.fn(async (model: { id: string }) => {
+      if (setModelSuccess) {
+        for (const h of modelSelectHandlers) {
+          await h({ type: "model_select", model: { id: model.id } });
+        }
+      }
+      return setModelSuccess;
+    }),
     getThinkingLevel: vi.fn().mockReturnValue(currentThinkingLevel),
-    getCurrentModel: vi.fn().mockReturnValue({ id: currentModelId }),
     registerTool: vi.fn(),
     registerShortcut: vi.fn(),
     registerFlag: vi.fn(),
@@ -321,7 +358,7 @@ describe("createControlCommandsExtension — /model command (SPEC-CMD-1)", () =>
     const fichaDir = await makeFicha("# Memory\nSome context");
     createdDirs.push(fichaDir);
 
-    const { api } = makeFakeApi({ currentModelId: "claude-haiku-4-5-20251001" });
+    const { api } = makeFakeApi();
     const factory = createControlCommandsExtension({
       fichaDir,
       availableModels: fakeAvailableModels,
@@ -345,7 +382,7 @@ describe("createControlCommandsExtension — /model command (SPEC-CMD-1)", () =>
     const fichaDir = await makeFicha("# Memory\nSome context");
     createdDirs.push(fichaDir);
 
-    const { api } = makeFakeApi({ currentModelId: "claude-haiku-4-5-20251001", setModelSuccess: true });
+    const { api } = makeFakeApi({ setModelSuccess: true });
     const factory = createControlCommandsExtension({
       fichaDir,
       availableModels: fakeAvailableModels,
@@ -366,7 +403,7 @@ describe("createControlCommandsExtension — /model command (SPEC-CMD-1)", () =>
     const fichaDir = await makeFicha("# Memory\nSome context");
     createdDirs.push(fichaDir);
 
-    const { api } = makeFakeApi({ currentModelId: "claude-haiku-4-5-20251001", setModelSuccess: true });
+    const { api } = makeFakeApi({ setModelSuccess: true });
     const factory = createControlCommandsExtension({
       fichaDir,
       availableModels: fakeAvailableModels,
@@ -385,7 +422,7 @@ describe("createControlCommandsExtension — /model command (SPEC-CMD-1)", () =>
     const fichaDir = await makeFicha("# Memory\nSome context");
     createdDirs.push(fichaDir);
 
-    const { api } = makeFakeApi({ currentModelId: "claude-haiku-4-5-20251001" });
+    const { api } = makeFakeApi();
     const factory = createControlCommandsExtension({
       fichaDir,
       availableModels: fakeAvailableModels,
@@ -405,7 +442,7 @@ describe("createControlCommandsExtension — /model command (SPEC-CMD-1)", () =>
     const fichaDir = await makeFicha("# Memory\nSome context");
     createdDirs.push(fichaDir);
 
-    const { api } = makeFakeApi({ currentModelId: "claude-haiku-4-5-20251001", setModelSuccess: false });
+    const { api } = makeFakeApi({ setModelSuccess: false });
     const factory = createControlCommandsExtension({
       fichaDir,
       availableModels: fakeAvailableModels,
@@ -419,6 +456,67 @@ describe("createControlCommandsExtension — /model command (SPEC-CMD-1)", () =>
     expect(api.setModel).toHaveBeenCalledTimes(1);
     // Output should describe the error — no exception thrown
     expect(output.toLowerCase()).toMatch(/error|missing|api key|credential|fail/);
+  });
+
+  it("SPEC-CMD-1-A (verify WARNING-1): active model tracks model_select after a switch", async () => {
+    // Regression for the stale-active-model bug: the extension must track the
+    // active model via the real ExtensionAPI `model_select` event, NOT a
+    // non-existent getCurrentModel(). The fake api here deliberately exposes NO
+    // getCurrentModel — setModel fires model_select (source "set") like the SDK.
+    const fichaDir = await makeFicha("# Memory\nSome context");
+    createdDirs.push(fichaDir);
+
+    const { api } = makeFakeApi({ setModelSuccess: true });
+    // Sanity: the real ExtensionAPI has no getCurrentModel — neither must our fake.
+    expect(api["getCurrentModel"]).toBeUndefined();
+
+    const factory = createControlCommandsExtension({
+      fichaDir,
+      availableModels: fakeAvailableModels,
+      agentId: "test-001",
+    });
+    factory(api as never);
+
+    // Before any switch, /model marks entry[0] (haiku) as active.
+    const before = await invokeCommand(api, "model", "");
+    const haikuLine = before
+      .split("\n")
+      .find((l) => l.includes("claude-haiku-4-5-20251001"));
+    expect(haikuLine).toContain("[active]");
+
+    // Switch to opus — this fires model_select on the real SDK.
+    await invokeCommand(api, "model", "opus");
+
+    // A subsequent /model (no-args) must mark OPUS active, not entry[0].
+    const after = await invokeCommand(api, "model", "");
+    const opusLine = after
+      .split("\n")
+      .find((l) => l.includes("claude-opus-4-7"));
+    const haikuLineAfter = after
+      .split("\n")
+      .find((l) => l.includes("claude-haiku-4-5-20251001"));
+    expect(opusLine).toContain("[active]");
+    expect(haikuLineAfter).not.toContain("[active]");
+  });
+
+  it("SPEC-CMD-3 (verify WARNING-1): /status reports the switched model as active", async () => {
+    const fichaDir = await makeFicha("# Memory\nSome context");
+    createdDirs.push(fichaDir);
+
+    const { api } = makeFakeApi({ setModelSuccess: true });
+    const factory = createControlCommandsExtension({
+      fichaDir,
+      availableModels: fakeAvailableModels,
+      agentId: "test-001",
+    });
+    factory(api as never);
+
+    await invokeCommand(api, "model", "opus");
+
+    const status = await invokeCommand(api, "status", "");
+    // Active model line must show opus, not the entry[0] default (haiku).
+    expect(status).toContain("claude-opus-4-7");
+    expect(status).not.toContain("claude-haiku-4-5-20251001");
   });
 });
 
@@ -508,7 +606,7 @@ describe("createControlCommandsExtension — /status command (SPEC-CMD-3)", () =
     createdDirs.push(fichaDir);
 
     const store = makeFakeStore(8.0); // 8.00 of 10.00 = 80%
-    const { api } = makeFakeApi({ currentModelId: "claude-sonnet-4-6", currentThinkingLevel: "medium" });
+    const { api } = makeFakeApi({ currentThinkingLevel: "medium" });
     const factory = createControlCommandsExtension({
       fichaDir,
       availableModels: fakeAvailableModels,
@@ -517,6 +615,9 @@ describe("createControlCommandsExtension — /status command (SPEC-CMD-3)", () =
       store,
     });
     factory(api as never);
+
+    // Switch to sonnet so /status reports the active (switched) model, not entry[0].
+    await invokeCommand(api, "model", "sonnet");
 
     const output = await invokeCommand(api, "status", "");
 
@@ -533,13 +634,13 @@ describe("createControlCommandsExtension — /status command (SPEC-CMD-3)", () =
     createdDirs.push(fichaDir);
 
     const store = makeFakeStore(0);
-    const { api } = makeFakeApi({ currentModelId: "llama3.1:70b", currentThinkingLevel: "off" });
+    const { api } = makeFakeApi({ currentThinkingLevel: "off" });
     const factory = createControlCommandsExtension({
       fichaDir,
       availableModels: [
         {
-          model: { id: "llama3.1:70b", provider: "ollama" },
-          thinkingLevel: "off" as const,
+          model: fakeModel("llama3.1:70b", "ollama"),
+          thinkingLevel: "off",
           modelId: "llama3.1:70b",
           label: "Llama local (no cost)",
         },
@@ -562,7 +663,7 @@ describe("createControlCommandsExtension — /status command (SPEC-CMD-3)", () =
     createdDirs.push(fichaDir);
 
     const store = makeFakeStore(0);
-    const { api } = makeFakeApi({ currentModelId: "claude-sonnet-4-6", currentThinkingLevel: "medium" });
+    const { api } = makeFakeApi({ currentThinkingLevel: "medium" });
     const factory = createControlCommandsExtension({
       fichaDir,
       availableModels: fakeAvailableModels,
@@ -582,7 +683,7 @@ describe("createControlCommandsExtension — /status command (SPEC-CMD-3)", () =
     const fichaDir = await makeFicha("# Memory\nSome context");
     createdDirs.push(fichaDir);
 
-    const { api } = makeFakeApi({ currentModelId: "claude-sonnet-4-6", currentThinkingLevel: "medium" });
+    const { api } = makeFakeApi({ currentThinkingLevel: "medium" });
     const factory = createControlCommandsExtension({
       fichaDir,
       availableModels: fakeAvailableModels,
