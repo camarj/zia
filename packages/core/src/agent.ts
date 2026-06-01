@@ -45,6 +45,7 @@ import {
   createBudgetEnforcementExtension,
   type MonthlySpendStore,
 } from "./budget-extension.ts";
+import { createControlCommandsExtension } from "./control-commands-extension.ts";
 
 type ThinkingLevel = "off" | "low" | "medium" | "high";
 
@@ -311,7 +312,8 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
   });
 
   // ---------------------------------------------------------------------------
-  // F-CORE-8: resolve agentId and budget enforcement extension
+  // F-CORE-8 + F-CORE-10: resolve agentId, budget enforcement extension, and
+  // control commands extension.
   //
   // agentId comes from profile.yaml `agent.id`. When absent, we derive a slug
   // from path.basename(fichaDir) and emit a startup warning (SPEC-BUDGET-6).
@@ -321,31 +323,33 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
   // readFichaProfile is the full profile reader. Combining them into one call
   // would require refactoring the existing readFichaLlm contract.
   //
-  // The budget extension is injected IFF:
+  // Always read the ficha profile here — both budget (F-CORE-8) and control
+  // commands (F-CORE-10) need agentId and budget values.
+  //
+  // Budget extension injected IFF:
   //  1. opts.monthlySpendStore is provided (composition root wires the SQLite store)
   //  2. ficha.llm.monthly_budget_usd > 0 (budget declared and positive)
   // Both conditions must hold — one alone is insufficient (SPEC-BUDGET-5, EC-10).
+  //
+  // Control commands extension ALWAYS injected (SPEC-EXT-1-B).
   // ---------------------------------------------------------------------------
+  const fichaProfile = await readFichaProfile(opts.fichaDir);
+  const budgetUsd: number | undefined = fichaProfile.llm?.monthly_budget_usd;
+
   let agentId: string;
-  let budgetUsd: number | undefined;
-
-  if (opts.monthlySpendStore !== undefined) {
-    const fichaProfile = await readFichaProfile(opts.fichaDir);
-    budgetUsd = fichaProfile.llm?.monthly_budget_usd;
-
-    if (fichaProfile.agent?.id) {
-      agentId = fichaProfile.agent.id;
-    } else {
-      agentId = basename(opts.fichaDir);
+  if (fichaProfile.agent?.id) {
+    agentId = fichaProfile.agent.id;
+  } else {
+    agentId = basename(opts.fichaDir);
+    if (opts.monthlySpendStore !== undefined) {
+      // Only warn about missing agent.id when budget tracking is active — the
+      // warning is budget-domain specific (SPEC-BUDGET-6).
       process.stderr.write(
         `zia: ${opts.fichaDir}/profile.yaml is missing agent.id. ` +
         `Budget and audit records will use the directory name as the agent identifier. ` +
         `Add 'agent:\\n  id: <slug>' to silence this warning.\n`,
       );
     }
-  } else {
-    // No store provided — agentId is unused; budget extension will not be injected.
-    agentId = basename(opts.fichaDir);
   }
 
   // Build the budget extension factory (null when budgetUsd <= 0 or store absent).
@@ -358,10 +362,22 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
         })
       : null;
 
-  // Compose extension factories: caller-supplied + budget extension (if active).
+  // Build the control commands extension — ALWAYS injected (SPEC-EXT-1-B).
+  // availableModels is sourced from resolvedModels (the pre-authenticated switch
+  // menu). budgetUsd and store are passed through so /status can show live spend.
+  const controlCommandsFactory = createControlCommandsExtension({
+    fichaDir: opts.fichaDir,
+    availableModels: resolvedModels,
+    agentId,
+    budgetUsd,
+    store: opts.monthlySpendStore,
+  });
+
+  // Compose extension factories: caller-supplied + budget (if active) + control commands.
   const allExtensionFactories: ExtensionFactory[] = [
     ...(opts.extensionFactories ?? []),
     ...(budgetExtensionFactory !== null ? [budgetExtensionFactory] : []),
+    controlCommandsFactory,
   ];
 
   const cwd = opts.cwd ?? process.cwd();
