@@ -126,8 +126,12 @@ llm:
     expect(result[1]!.thinkingLevel).toBe("high");
   });
 
-  // SPEC-MODELS-1-B — missing env var → ZiaConfigError
-  it("throws ZiaConfigError when credentialEnv is set but env var is missing (SPEC-MODELS-1-B)", async () => {
+  // SPEC-MODELS-1-B (realigned) — missing env var for an available[] entry does NOT throw.
+  // The old SPEC-MODELS-1-B behavior (throw ZiaConfigError for missing available[] creds)
+  // has been realigned to match Hermes §7 + pi.dev multi-model: the available[] loop is
+  // now LAZY. Only the ACTIVE (llm.default) model's credential is checked strictly — and
+  // that check lives in agent.ts, not in resolveAvailableModels. See engram #704.
+  it("does NOT throw when an available[] entry has credentialEnv set but the env var is missing (SPEC-MODELS-1-B realigned: lazy auth)", async () => {
     const dir = await makeFicha(`
 agent:
   id: err-test
@@ -141,10 +145,15 @@ llm:
       credentials_env: MY_KEY
 `);
     const auth = makeAuthStorage();
-    await expect(resolveAvailableModels(dir, {}, auth)).rejects.toThrow(ZiaConfigError);
+    // Must resolve successfully — key is absent but that is lazy (no throw).
+    const result = await resolveAvailableModels(dir, {}, auth);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.model.id).toBe("claude-sonnet-4-6");
+    // No key registered (env var absent — skipped)
+    expect(auth.hasAuth("anthropic")).toBe(false);
   });
 
-  it("ZiaConfigError message contains the provider and env var name (SPEC-MODELS-1-B)", async () => {
+  it("skips auth registration for missing env var but still returns the descriptor (SPEC-MODELS-1-B realigned)", async () => {
     const dir = await makeFicha(`
 agent:
   id: err-test
@@ -158,8 +167,11 @@ llm:
       credentials_env: MY_OPENAI_KEY
 `);
     const auth = makeAuthStorage();
-    await expect(resolveAvailableModels(dir, {}, auth)).rejects.toThrow(/MY_OPENAI_KEY/);
-    await expect(resolveAvailableModels(dir, {}, auth)).rejects.toThrow(/openai/i);
+    // Must not throw; descriptor is returned with no auth registered.
+    const result = await resolveAvailableModels(dir, {}, auth);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.model.id).toBe("gpt-4o-mini");
+    expect(auth.hasAuth("openai")).toBe(false);
   });
 
   // SPEC-MODELS-1-C — absent llm.available → single-entry fallback
@@ -267,7 +279,10 @@ llm:
     expect(result[0]!.model.id).toBe("gpt-4o");
   });
 
-  it("throws ZiaConfigError for an OAuth entry when AuthStorage has no token (SPEC-MODELS-1 OAuth / EC-6)", async () => {
+  // OAuth lazy auth: an available[] OAuth entry without a token does NOT throw.
+  // The strict check (hasAuth required at startup) applies only to the ACTIVE
+  // (llm.default) OAuth model — enforced in agent.ts. See engram #704.
+  it("does NOT throw for an OAuth available[] entry when AuthStorage has no token (lazy auth, EC-6 realigned)", async () => {
     const dir = await makeFicha(`
 agent:
   id: oauth-missing
@@ -281,9 +296,12 @@ llm:
 `);
     const auth = makeAuthStorage();
     // No token seeded — hasAuth("github-copilot") is false.
-    await expect(resolveAvailableModels(dir, {}, auth)).rejects.toThrow(ZiaConfigError);
-    await expect(resolveAvailableModels(dir, {}, auth)).rejects.toThrow(/github-copilot/);
-    await expect(resolveAvailableModels(dir, {}, auth)).rejects.toThrow(/agent-runtime model/);
+    // With lazy auth the menu resolver must NOT throw; it returns the descriptor.
+    const result = await resolveAvailableModels(dir, {}, auth);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.model.id).toBe("gpt-4o");
+    // No auth registered (OAuth token absent — skipped silently).
+    expect(auth.hasAuth("github-copilot")).toBe(false);
   });
 
   // Mixed: anthropic + custom in available[]
