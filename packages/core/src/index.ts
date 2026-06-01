@@ -19,3 +19,5 @@ export { messagePersistExtension } from "./message-persist-extension.ts";
 export type { MessageSink } from "./message-persist-extension.ts";
 export { createBudgetEnforcementExtension } from "./budget-extension.ts";
 export type { BudgetEnforcementExtensionOpts, MonthlySpendStore } from "./budget-extension.ts";
+export { createControlCommandsExtension } from "./control-commands-extension.ts";
+export type { ControlCommandsExtensionOpts, AvailableModelEntry } from "./control-commands-extension.ts";
