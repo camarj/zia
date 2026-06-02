@@ -46,6 +46,7 @@ import {
   type MonthlySpendStore,
 } from "./budget-extension.ts";
 import { createControlCommandsExtension } from "./control-commands-extension.ts";
+import { createFallbackController } from "./fallback-controller.ts";
 
 type ThinkingLevel = "off" | "low" | "medium" | "high";
 
@@ -454,6 +455,43 @@ export async function createZiaAgent(opts: CreateZiaAgentOptions): Promise<ZiaAg
     agentDir,
     sessionManager: opts.sessionManager ?? SessionManager.create(cwd),
   });
+
+  // ---------------------------------------------------------------------------
+  // F-LLM-4: automatic cross-model fallback (SPEC-FB-1, SPEC-FB-8).
+  //
+  // The fallback controller is a SESSION SUBSCRIBER (not a pi.dev extension) —
+  // the trigger event `auto_retry_end` lives on AgentSessionEvent, observable
+  // only via runtime.session.subscribe(). It cannot be reached from an
+  // ExtensionFactory's ExtensionAPI (design #720). So it is attached here, at
+  // the composition root, AFTER the runtime (and its live session) exist.
+  //
+  // Mirrors the budget conditional injection block above, but attaches to
+  // runtime.session instead of pushing an ExtensionFactory.
+  //
+  // Wired IFF fallback_on_error === true AND resolvedModels.length >= 2.
+  // When fallback_on_error is true but there is nothing to fall back to (a
+  // single model), emit a one-line startup warning instead of wiring (EC-FB-1).
+  // ---------------------------------------------------------------------------
+  if (fichaProfile.llm?.fallback_on_error === true) {
+    if (resolvedModels.length >= 2) {
+      createFallbackController({
+        session: runtime.session,
+        scopedModels: resolvedModels,
+        agentId,
+      });
+      // SPEC-FB-8: auto_retry_end only fires when pi.dev auto-retry is enabled.
+      // Force it on defensively so fallback never silently no-ops. Idempotent;
+      // intentionally overrides any user SettingsManager that disabled retry —
+      // fallback REQUIRES retry.
+      runtime.session.setAutoRetryEnabled(true);
+    } else {
+      process.stderr.write(
+        `zia: fallback_on_error is true but only one model is available — ` +
+          `no additional models to fall back to. Add entries to llm.available[] ` +
+          `in profile.yaml to enable cross-model fallback.\n`,
+      );
+    }
+  }
 
   return {
     runtime,
