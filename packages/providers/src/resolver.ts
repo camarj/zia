@@ -139,6 +139,10 @@ export type ResolvedModelEntry = {
   /** Model identifier string (mirrors FichaModelEntry.modelId). For the
    * single-entry fallback this is derived from the resolved model's id. */
   modelId: string;
+  /** The credentials_env var name from the ficha available[] entry, if declared.
+   * Used by createFallbackController to surface actionable skip warnings when
+   * session.setModel() throws for an unauthenticated candidate (SPEC-FB-9). */
+  credentialEnv?: string;
 };
 
 /**
@@ -237,6 +241,7 @@ export async function resolveAvailableModels(
       thinkingLevel: entry.thinkingLevel,
       label: entry.label,
       modelId: entry.modelId,
+      credentialEnv: entry.credentialEnv,
     });
   }
 

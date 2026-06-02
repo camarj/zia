@@ -333,4 +333,58 @@ llm:
     // Custom provider: no auth registration, no error
     expect(result[1]!.model.id).toBe("llama3.1:70b");
   });
+
+  // ---------------------------------------------------------------------------
+  // SPEC-FB-9 — credentialEnv on ResolvedModelEntry (T-1.1)
+  // ---------------------------------------------------------------------------
+
+  // SPEC-FB-9-A — credentialEnv propagated from ficha to ResolvedModelEntry
+  it("propagates credentials_env from available[] entry to credentialEnv on ResolvedModelEntry (SPEC-FB-9-A)", async () => {
+    const dir = await makeFicha(`
+agent:
+  id: fb9-a
+llm:
+  default:
+    provider: anthropic
+    model: claude-sonnet-4-6
+  available:
+    - provider: anthropic
+      model: claude-sonnet-4-6
+      credentials_env: ANTHROPIC_API_KEY
+    - provider: openai
+      model: gpt-4o
+      credentials_env: OPENAI_API_KEY
+`);
+    const auth = makeAuthStorage();
+    const result = await resolveAvailableModels(
+      dir,
+      { ANTHROPIC_API_KEY: "sk-ant", OPENAI_API_KEY: "sk-oai" },
+      auth,
+    );
+
+    expect(result[0]!.credentialEnv).toBe("ANTHROPIC_API_KEY");
+    expect(result[1]!.credentialEnv).toBe("OPENAI_API_KEY");
+  });
+
+  // SPEC-FB-9-B — credentialEnv undefined when not declared (OAuth / custom)
+  it("leaves credentialEnv undefined for an entry without credentials_env (SPEC-FB-9-B)", async () => {
+    const dir = await makeFicha(`
+agent:
+  id: fb9-b
+llm:
+  default:
+    provider: custom
+    model: llama3.1:70b
+    baseUrl: http://localhost:11434
+  available:
+    - provider: custom
+      model: llama3.1:70b
+      label: "Llama local"
+      baseUrl: http://localhost:11434
+`);
+    const auth = makeAuthStorage();
+    const result = await resolveAvailableModels(dir, {}, auth);
+
+    expect(result[0]!.credentialEnv).toBeUndefined();
+  });
 });
