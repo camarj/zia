@@ -133,6 +133,19 @@ function exhaustedContent(triedCount: number): string {
   );
 }
 
+/**
+ * Exhaustion copy for the case where no user prompt was ever captured
+ * (SPEC-FB-6-C). No model walk was attempted, so it must NOT claim models were
+ * tried — that would be misleading (verify SUGGESTION-2).
+ */
+function noPromptExhaustedContent(): string {
+  return (
+    `Fallback could not run: no prior user prompt was captured for this turn, ` +
+    `so there is nothing to re-submit on another model. ` +
+    `Send your request again, or use /model to switch manually.`
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
@@ -169,11 +182,14 @@ export function createFallbackController(
 
   async function emitExhausted(reason?: string): Promise<void> {
     walkActive = false;
+    const noPrompt = reason === "no-prompt-captured";
     await session.sendCustomMessage(
       {
         customType: "zia:fallback-exhausted",
         display: true,
-        content: exhaustedContent(triedModelIds.size),
+        content: noPrompt
+          ? noPromptExhaustedContent()
+          : exhaustedContent(triedModelIds.size),
         details: {
           agentId,
           attemptedModels: [...triedModelIds],
@@ -185,55 +201,76 @@ export function createFallbackController(
   }
 
   async function walk(): Promise<void> {
+    // Re-entrancy guard (verify WARNING-1): if a walk is already in progress,
+    // a second auto_retry_end MUST NOT start a concurrent walk. Two coroutines
+    // would share triedModelIds/walkActive and both read a stale session.model,
+    // risking a double sendUserMessage on the same model. We bail out and let
+    // the in-flight walk own this cascade. Cascade-reset semantics (a genuine
+    // new user turn resetting walkActive) are preserved by the subscriber.
+    if (walkActive) return;
+
     // No captured prompt → cannot re-submit; exhaust immediately (SPEC-FB-6-C).
+    // Done before claiming the walk so the "no models tried" message stays
+    // accurate and walkActive is never left dangling.
     if (lastUserPrompt === undefined) {
       await emitExhausted("no-prompt-captured");
       return;
     }
 
+    // Claim the walk BEFORE the first await so a re-entrant call sees it active.
+    walkActive = true;
     const curId = session.model?.id;
+    // Seed with the model that just failed so we never re-try it this cascade.
+    triedModelIds.clear();
+    if (curId) triedModelIds.add(curId);
 
-    if (!walkActive) {
-      walkActive = true;
-      // Seed with the model that just failed so we never re-try it this cascade.
-      triedModelIds.clear();
-      if (curId) triedModelIds.add(curId);
-    }
+    try {
+      const startIdx = indexOfModelId(curId) + 1;
 
-    const startIdx = indexOfModelId(curId) + 1;
+      for (let i = startIdx; i < scopedModels.length; i++) {
+        const candidate = scopedModels[i]!;
+        if (triedModelIds.has(candidate.modelId)) continue;
+        triedModelIds.add(candidate.modelId);
 
-    for (let i = startIdx; i < scopedModels.length; i++) {
-      const candidate = scopedModels[i]!;
-      if (triedModelIds.has(candidate.modelId)) continue;
-      triedModelIds.add(candidate.modelId);
-
-      try {
-        await session.setModel(candidate.model);
-      } catch {
-        // No auth for this candidate — warn and continue (SPEC-FB-4).
-        await session.sendCustomMessage(
-          {
-            customType: "zia:fallback-skip",
-            display: true,
-            content: skipContent(candidate.modelId, candidate.credentialEnv),
-            details: {
-              modelId: candidate.modelId,
-              credentialEnv: candidate.credentialEnv,
+        try {
+          await session.setModel(candidate.model);
+        } catch {
+          // No auth for this candidate — warn and continue (SPEC-FB-4).
+          await session.sendCustomMessage(
+            {
+              customType: "zia:fallback-skip",
+              display: true,
+              content: skipContent(candidate.modelId, candidate.credentialEnv),
+              details: {
+                modelId: candidate.modelId,
+                credentialEnv: candidate.credentialEnv,
+              },
             },
-          },
-          { triggerTurn: false },
-        );
-        continue;
-      }
+            { triggerTurn: false },
+          );
+          continue;
+        }
 
-      // Switch succeeded → re-submit the failed prompt on the new model.
-      // Guard the resulting user message_end as self-submitted (SPEC-FB-7-C).
-      selfSubmitting = true;
-      await session.sendUserMessage(lastUserPrompt);
-      return;
+        // Switch succeeded → re-submit the failed prompt on the new model.
+        // Guard the resulting user message_end as self-submitted (SPEC-FB-7-C).
+        // Release the walk lock BEFORE awaiting the re-submit so the NEXT
+        // auto_retry_end (from the re-submitted turn failing) can start a fresh
+        // walk from the new successor — preserving cascade continuity.
+        selfSubmitting = true;
+        walkActive = false;
+        await session.sendUserMessage(lastUserPrompt);
+        return;
+      }
+    } catch (err) {
+      // setModel throws are handled above (skip). A throw here is from
+      // sendUserMessage/sendCustomMessage — release the lock and re-throw so
+      // the subscriber's .catch surfaces it (verify WARNING-2).
+      walkActive = false;
+      throw err;
     }
 
     // Walk exhausted with no successful switch (SPEC-FB-5).
+    // emitExhausted resets walkActive.
     await emitExhausted();
   }
 
@@ -256,9 +293,14 @@ export function createFallbackController(
     }
 
     if (isAutoRetryFail(event)) {
-      // Fire-and-forget: the walk is async. Errors inside are surfaced via
-      // notices; we never throw out of the subscriber.
-      void walk();
+      // Fire-and-forget: the walk is async. setModel throws are caught inside
+      // (skip + continue). A rejection here means sendUserMessage /
+      // sendCustomMessage failed (e.g. disposed session) — log it to stderr so
+      // the failure is visible, never a silent unhandled rejection
+      // (verify WARNING-2). We still never throw out of the subscriber.
+      void walk().catch((err: unknown) => {
+        console.warn("[zia:fallback] walk failed:", err);
+      });
     }
   });
 

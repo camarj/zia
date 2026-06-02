@@ -377,6 +377,14 @@ describe("createFallbackController — prompt capture (SPEC-FB-6)", () => {
     expect(exhausted![0].details.reason).toBe("no-prompt-captured");
     // No model walk attempted when there is no prompt to re-submit.
     expect(session.setModel).not.toHaveBeenCalled();
+    // Content must match the actual reason — it must NOT claim models were
+    // tried when none were (verify SUGGESTION-2).
+    expect(exhausted![0].content).not.toContain("tried 0 models");
+    expect(exhausted![0].content).not.toMatch(/tried \d+ models/);
+    expect(exhausted![0].content).toContain("no prior user prompt was captured");
+    // details shape preserved: agentId + attemptedModels[] (empty) + reason.
+    expect(exhausted![0].details.agentId).toBe("fin-001");
+    expect(exhausted![0].details.attemptedModels).toEqual([]);
   });
 });
 
@@ -465,5 +473,103 @@ describe("createFallbackController — permanence & cascade reset (SPEC-FB-7)", 
     session.emit(autoRetryFail());
     await flush();
     expect(session.setModel).toHaveBeenLastCalledWith(models[2]!.model);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// W-1 — concurrent walk re-entrancy guard (verify WARNING-1)
+// ---------------------------------------------------------------------------
+
+describe("createFallbackController — re-entrancy guard (verify WARNING-1)", () => {
+  it("two auto_retry_end back-to-back (before echo) advance the walk by exactly one model, no double sendUserMessage", async () => {
+    const session = makeSession("m0");
+    const models = [entry("m0"), entry("m1"), entry("m2")];
+
+    // Make setModel slow so the first walk is still in-flight (awaiting
+    // setModel) when the second auto_retry_end fires. This is the exact
+    // window WARNING-1 describes.
+    let resolveSet: (() => void) | undefined;
+    session.setModel.mockImplementation(
+      (model: FakeModel) =>
+        new Promise<void>((resolve) => {
+          resolveSet = () => {
+            session.model = model;
+            resolve();
+          };
+        }),
+    );
+
+    createFallbackController(buildOpts(session, models));
+
+    session.emit(userMessageEnd("do it"));
+    // Fire TWO failures back-to-back, before any self-resubmit echo and before
+    // the first setModel resolves.
+    session.emit(autoRetryFail());
+    session.emit(autoRetryFail());
+    await flush();
+
+    // Only the first walk claimed the cascade; the second returned early.
+    // Exactly one setModel call is pending (to m1), none to m2.
+    expect(session.setModel).toHaveBeenCalledTimes(1);
+    expect(session.setModel).toHaveBeenCalledWith(models[1]!.model);
+    expect(session.setModel).not.toHaveBeenCalledWith(models[2]!.model);
+    // No re-submit yet — setModel hasn't resolved.
+    expect(session.sendUserMessage).not.toHaveBeenCalled();
+
+    // Resolve the in-flight switch → exactly one re-submit, on the new model.
+    resolveSet!();
+    await flush();
+    expect(session.sendUserMessage).toHaveBeenCalledTimes(1);
+    expect(session.sendUserMessage).toHaveBeenCalledWith("do it");
+    // Still exactly one setModel — no concurrent walk doubled the advance.
+    expect(session.setModel).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// W-2 — surface send errors instead of swallowing them (verify WARNING-2)
+// ---------------------------------------------------------------------------
+
+describe("createFallbackController — surfaces send errors (verify WARNING-2)", () => {
+  it("sendUserMessage rejection is caught/logged, controller does not crash", async () => {
+    const session = makeSession("m0");
+    const models = [entry("m0"), entry("m1")];
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Track unhandled rejections — there must be none.
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+
+    session.setModel.mockImplementation(async (model: FakeModel) => {
+      session.model = model;
+    });
+    session.sendUserMessage.mockRejectedValue(new Error("session disposed"));
+
+    try {
+      createFallbackController(buildOpts(session, models));
+
+      session.emit(userMessageEnd("trigger send failure"));
+      // The subscriber must not throw even though the walk will reject.
+      expect(() => session.emit(autoRetryFail())).not.toThrow();
+      await flush();
+      // Give the microtask + macrotask queue a chance to flush a would-be
+      // unhandled rejection.
+      await flush();
+
+      // The walk attempted the switch + re-submit (which rejected).
+      expect(session.setModel).toHaveBeenCalledWith(models[1]!.model);
+      expect(session.sendUserMessage).toHaveBeenCalledWith("trigger send failure");
+      // The rejection was logged to stderr, not swallowed.
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[zia:fallback] walk failed:",
+        expect.any(Error),
+      );
+      // No unhandled rejection escaped.
+      expect(unhandled).toHaveLength(0);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+      warnSpy.mockRestore();
+    }
   });
 });
